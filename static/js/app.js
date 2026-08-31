@@ -46,12 +46,10 @@
     } else {
       document.documentElement.removeAttribute("data-theme");
     }
+    // Which icon shows is CSS's job; only the label needs updating here.
+    const dark = resolvedTheme() === "dark";
     document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
-      const dark = resolvedTheme() === "dark";
       button.setAttribute("aria-label", dark ? "Passer en clair" : "Passer en sombre");
-      button.querySelectorAll("[data-theme-icon]").forEach(function (icon) {
-        icon.hidden = icon.dataset.themeIcon !== (dark ? "sun" : "moon");
-      });
     });
   }
 

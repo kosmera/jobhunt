@@ -438,6 +438,19 @@ hr { border: 0; border-top: 1px solid var(--rule); margin: 1.5rem 0; }
 .icon-btn:hover { background: var(--card-alt); color: var(--ink); border-color: var(--rule); }
 .icon-btn svg { width: 15px; height: 15px; }
 
+/* Theme toggle: show the icon for the theme the click will switch *to*.
+   Driven from CSS rather than JS because `hidden` is an HTMLElement property —
+   on an <svg> both the attribute and element.hidden are silently inert. The
+   three states mirror the colour tokens: light, system-dark, explicit-dark. */
+[data-theme-icon="sun"] { display: none; }
+[data-theme-icon="moon"] { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) [data-theme-icon="sun"] { display: block; }
+  :root:not([data-theme="light"]) [data-theme-icon="moon"] { display: none; }
+}
+:root[data-theme="dark"] [data-theme-icon="sun"] { display: block; }
+:root[data-theme="dark"] [data-theme-icon="moon"] { display: none; }
+
 .btn-row { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 
 /* --------------------------------------------------------------- forms -- */
@@ -852,9 +865,15 @@ details.collapse[open] > summary::before { transform: rotate(90deg); }
 .axis-x { display: flex; justify-content: space-between; margin-top: 0.35rem; padding-left: 1px; }
 .scatter__wrap { display: grid; grid-template-columns: auto 1fr; gap: 0 0.5rem; align-items: stretch; }
 .axis-y {
+  /* The 180° turn makes the label read bottom-to-top, as a y-axis should — but
+     it also flips the running order, so the items are laid out in reverse to
+     land 100 % at the top and 0 at the bottom, matching the plotted points. */
   writing-mode: vertical-rl; transform: rotate(180deg);
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0 0 1.35rem;
+  display: flex; flex-direction: row-reverse;
+  justify-content: space-between; align-items: center;
+  /* Reserves the height of the x-axis row below the plot. Declared on the top
+     because the 180° turn puts it at the bottom on screen. */
+  padding: 1.35rem 0 0;
 }
 
 /* bar list used for sector / language / gap breakdowns */

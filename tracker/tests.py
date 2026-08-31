@@ -139,6 +139,39 @@ class PageRenderTests(TestCase):
                 response = self.client.get(self.ready.get_absolute_url())
                 self.assertEqual(response.status_code, 200)
 
+    def test_every_sprite_icon_is_a_symbol_with_a_viewbox(self):
+        """<g> cannot carry a viewBox, so a 24x24 icon would be clipped to 16px."""
+        import re
+
+        html = self.client.get(reverse("tracker:dashboard")).content.decode()
+        sprite = re.search(r"(<svg width=\"0\".*?</svg>)", html, re.S).group(1)
+
+        definitions = re.findall(r'<(\w+) id="(i-[a-z-]+)"([^>]*)>', sprite)
+        self.assertTrue(definitions, "aucune icône trouvée dans le sprite")
+        for tag, name, attrs in definitions:
+            with self.subTest(icon=name):
+                self.assertEqual(tag, "symbol", f"{name} est un <{tag}>, pas un <symbol>")
+                self.assertIn("viewBox", attrs, f"{name} n'a pas de viewBox")
+
+        # Every icon referenced anywhere must exist in the sprite.
+        referenced = set(re.findall(r'<use href="#(i-[a-z-]+)"', html))
+        defined = {name for _, name, _ in definitions}
+        self.assertFalse(referenced - defined, f"icônes manquantes : {referenced - defined}")
+
+    def test_no_svg_relies_on_the_hidden_attribute(self):
+        """`hidden` is an HTMLElement property — on an <svg> it does nothing."""
+        import re
+
+        for name in ["tracker:dashboard", "tracker:application_list"]:
+            html = self.client.get(reverse(name)).content.decode()
+            for tag in re.findall(r"<svg[^>]*>", html):
+                with self.subTest(page=name, tag=tag[:60]):
+                    self.assertNotRegex(
+                        tag,
+                        r"(?<!aria-)\bhidden\b(?!-)",
+                        "un <svg> masqué par l'attribut hidden reste visible",
+                    )
+
     def test_the_favicon_data_uri_carries_usable_colours(self):
         """`urlencode` escapes "#" itself — pre-escaping it yields %2523."""
         import re

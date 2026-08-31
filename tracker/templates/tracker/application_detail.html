@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% load tracker_extras %}
+
+{% block title %}{{ application.company.name }} — {{ application.title }}{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div class="meta" style="margin-bottom:.6rem">
+      <a href="{% url 'tracker:application_list' %}" style="color:var(--ink-3)">Candidatures</a>
+      <span class="meta__sep">/</span>
+      <span>{{ application.company.get_sector_display }}</span>
+      {% if application.source_platform %}
+        <span class="meta__sep">·</span><span>{{ application.source_platform.name }}</span>
+      {% endif %}
+    </div>
+
+    <div class="page-head__row">
+      <div style="min-width:0">
+        <h1 class="page-title">{{ application.company.name }}</h1>
+        <p class="page-lede" style="margin-top:.35rem">{{ application.title }}</p>
+        <div class="meta" style="margin-top:.7rem">
+          {% if application.location %}
+            <span><svg style="width:12px;height:12px;vertical-align:-1px" aria-hidden="true"><use href="#i-pin"></use></svg> {{ application.location }}</span>
+          {% endif %}
+          {% if application.distance_km is not None %}
+            <span class="meta__sep">·</span><span>{{ application.distance_km }} km de Nivelles</span>
+          {% endif %}
+          {% if application.work_mode != 'unknown' %}
+            <span class="meta__sep">·</span><span>{{ application.get_work_mode_display }}</span>
+          {% endif %}
+          <span class="meta__sep">·</span><span>CV en {{ application.get_cv_language_display|lower }}</span>
+        </div>
+      </div>
+
+      <div class="page-head__actions">
+        {% if application.url %}
+          <a class="btn btn--sm" href="{{ application.url }}" target="_blank" rel="noopener">
+            <svg aria-hidden="true"><use href="#i-external"></use></svg> Voir l'annonce
+          </a>
+        {% endif %}
+        <a class="btn btn--sm" href="{% url 'tracker:application_update' application.pk %}">
+          <svg aria-hidden="true"><use href="#i-pencil"></use></svg> Modifier
+        </a>
+        <form method="post" action="{% url 'tracker:application_delete' application.pk %}"
+              onsubmit="return confirm('Supprimer définitivement cette candidature et ses documents ?')">
+          {% csrf_token %}
+          <button type="submit" class="btn btn--sm btn--danger" aria-label="Supprimer la candidature">
+            <svg aria-hidden="true"><use href="#i-trash"></use></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel__body">
+        <div style="display:flex;align-items:flex-end;gap:2rem;flex-wrap:wrap">
+          <div style="flex:1 1 320px;min-width:240px">
+            <div class="eyebrow" style="margin-bottom:.5rem">Compatibilité estimée</div>
+            {% include "tracker/partials/gauge.html" with score=application.score band=application.score_band size="lg" %}
+            <div class="gauge-legend"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
+          </div>
+          {% if application.summary %}
+            <p class="prose" style="flex:2 1 360px;max-width:62ch;margin:0">{{ application.summary }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <div class="cols cols--detail">
+      <div class="stack">
+        {% if application.strengths or application.weaknesses %}
+          <section class="panel">
+            <div class="panel__head">
+              <span class="eyebrow">La balance, sans maquillage</span>
+            </div>
+            <div class="ledger">
+              <div class="ledger__side t-green">
+                <div class="ledger__head"><span class="panel__title">Ce qui joue pour toi</span></div>
+                <div class="prose prose--tight">{{ application.strengths|richtext }}</div>
+              </div>
+              <div class="ledger__side t-red">
+                <div class="ledger__head"><span class="panel__title">Ce qui joue contre toi</span></div>
+                <div class="prose prose--tight">{{ application.weaknesses|richtext }}</div>
+              </div>
+            </div>
+          </section>
+        {% endif %}
+
+        {% if application.strategy %}
+          <section class="panel t-indigo">
+            <div class="panel__head"><span class="eyebrow">Comment aborder cette candidature</span></div>
+            <div class="panel__body"><div class="prose">{{ application.strategy|richtext }}</div></div>
+          </section>
+        {% endif %}
+
+        {% include "tracker/partials/notes_panel.html" %}
+        {% include "tracker/partials/timeline_panel.html" %}
+
+        {% if application.posting_raw %}
+          <section class="panel">
+            <div class="panel__head"><span class="eyebrow">Annonce d'origine</span>
+              <span class="panel__actions meta">copie conservée au cas où elle disparaîtrait</span>
+            </div>
+            <div class="panel__body">
+              <details class="collapse">
+                <summary>Afficher le texte intégral</summary>
+                <div class="raw-posting" style="margin-top:.6rem">{{ application.posting_raw }}</div>
+              </details>
+            </div>
+          </section>
+        {% endif %}
+
+        {% if application.notes_raw %}
+          <section class="panel">
+            <div class="panel__head"><span class="eyebrow">Notes d'origine</span></div>
+            <div class="panel__body">
+              <details class="collapse">
+                <summary>Afficher les notes importées</summary>
+                <div class="prose prose--tight" style="margin-top:.6rem">{{ application.notes_raw|richtext }}</div>
+              </details>
+            </div>
+          </section>
+        {% endif %}
+      </div>
+
+      <div class="stack">
+        {% include "tracker/partials/status_panel.html" %}
+        {% include "tracker/partials/documents_panel.html" %}
+        {% include "tracker/partials/contacts_panel.html" %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

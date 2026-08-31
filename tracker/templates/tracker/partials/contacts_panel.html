@@ -1,0 +1,56 @@
+{% load tracker_extras %}
+<div class="panel" id="contacts-panel">
+  <div class="panel__head">
+    <span class="eyebrow">Contacts</span>
+    <span class="panel__actions"><span class="spinner htmx-indicator"></span></span>
+  </div>
+  <div class="panel__body">
+    {% for contact in application.contacts.all %}
+      <div class="doc-item" style="align-items:flex-start">
+        <span class="icon-btn" style="pointer-events:none"><svg aria-hidden="true"><use href="#i-user"></use></svg></span>
+        <div class="doc-item__body">
+          <div class="doc-item__label">{{ contact.name }}</div>
+          <div class="meta">
+            {% if contact.role %}{{ contact.role }}{% endif %}
+            {% if contact.email %}<span class="meta__sep">·</span><a href="mailto:{{ contact.email }}">{{ contact.email }}</a>{% endif %}
+            {% if contact.phone %}<span class="meta__sep">·</span>{{ contact.phone }}{% endif %}
+            {% if contact.linkedin %}<span class="meta__sep">·</span><a href="{{ contact.linkedin }}" target="_blank" rel="noopener">LinkedIn</a>{% endif %}
+          </div>
+          {% if contact.notes %}<div class="table__sub" style="margin-top:.25rem">{{ contact.notes }}</div>{% endif %}
+        </div>
+        <button type="button" class="icon-btn"
+                hx-post="{% url 'tracker:delete_contact' contact.pk %}"
+                hx-target="#contacts-panel" hx-swap="outerHTML"
+                data-confirm="Supprimer ce contact ?"
+                aria-label="Supprimer {{ contact.name }}">
+          <svg aria-hidden="true"><use href="#i-trash"></use></svg>
+        </button>
+      </div>
+    {% empty %}
+      <div class="empty empty--sm">
+        <p class="empty__text">Personne d'identifié. Ajoute le recruteur dès le premier échange.</p>
+      </div>
+    {% endfor %}
+
+    <details class="collapse" style="margin-top:.75rem;border-top:1px solid var(--rule);padding-top:.35rem"
+             {% if expand_form and contact_form.errors %}open{% endif %}>
+      <summary>Ajouter un contact</summary>
+      <form style="margin-top:.6rem"
+            hx-post="{% url 'tracker:add_contact' application.pk %}"
+            hx-target="#contacts-panel"
+            hx-swap="outerHTML">
+        <div class="form-grid form-grid--2">
+          {% include "tracker/partials/field.html" with field=contact_form.name %}
+          {% include "tracker/partials/field.html" with field=contact_form.role %}
+          {% include "tracker/partials/field.html" with field=contact_form.email %}
+          {% include "tracker/partials/field.html" with field=contact_form.phone %}
+        </div>
+        {% include "tracker/partials/field.html" with field=contact_form.linkedin %}
+        {% include "tracker/partials/field.html" with field=contact_form.notes %}
+        <div class="btn-row" style="justify-content:flex-end">
+          <button type="submit" class="btn btn--sm btn--primary">Ajouter</button>
+        </div>
+      </form>
+    </details>
+  </div>
+</div>

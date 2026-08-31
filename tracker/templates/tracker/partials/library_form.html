@@ -1,0 +1,19 @@
+<form id="library-form"
+      hx-post="{% url 'tracker:add_library_document' %}"
+      hx-target="#library-form"
+      hx-swap="outerHTML"
+      hx-encoding="multipart/form-data">
+  <div class="form-grid form-grid--2">
+    <div class="field field--full">
+      <label class="field__label" for="{{ document_form.file.id_for_label }}">{{ document_form.file.label }}</label>
+      {{ document_form.file }}
+      {% for error in document_form.file.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+    </div>
+    {% include "tracker/partials/field.html" with field=document_form.kind %}
+    {% include "tracker/partials/field.html" with field=document_form.language %}
+    {% include "tracker/partials/field.html" with field=document_form.label %}
+  </div>
+  <div class="btn-row" style="justify-content:flex-end">
+    <button type="submit" class="btn btn--sm btn--primary">Ajouter à la bibliothèque</button>
+  </div>
+</form>

@@ -1,0 +1,54 @@
+{% load tracker_extras %}
+<div class="panel" id="timeline-panel">
+  <div class="panel__head">
+    <span class="eyebrow">Fil de la candidature</span>
+    <span class="panel__actions"><span class="spinner htmx-indicator"></span></span>
+  </div>
+  <div class="panel__body">
+    {% if application.events.all %}
+      <ul class="timeline">
+        {% for event in application.events.all %}
+          <li class="timeline__item t-{% if event.kind == 'rejection' %}red{% elif event.kind == 'offer' %}green{% elif event.kind == 'interview' or event.kind == 'test' %}violet{% elif event.kind == 'applied' %}blue{% elif event.kind == 'follow_up' %}amber{% else %}slate{% endif %}">
+            <div class="timeline__date">
+              {{ event.happened_on|date:"d/m/Y" }}
+              <span class="meta__sep">·</span> {{ event.get_kind_display|lower }}
+              {% if event.happened_on > today %}<span class="pill t-indigo" style="margin-left:.3rem">à venir</span>{% endif %}
+            </div>
+            <div class="timeline__title">{{ event.title }}</div>
+            {% if event.detail %}<div class="timeline__detail">{{ event.detail|linebreaksbr }}</div>{% endif %}
+            <button type="button" class="icon-btn"
+                    hx-post="{% url 'tracker:delete_event' event.pk %}"
+                    hx-target="#timeline-panel" hx-swap="outerHTML"
+                    data-confirm="Supprimer cet événement ?"
+                    aria-label="Supprimer l'événement">
+              <svg aria-hidden="true"><use href="#i-trash"></use></svg>
+            </button>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty empty--sm">
+        <p class="empty__text">Rien de consigné pour l'instant. Note ici les appels, les e-mails, les entretiens — c'est ce qui te sauvera dans trois semaines.</p>
+      </div>
+    {% endif %}
+
+    <details class="collapse" style="margin-top:.75rem;border-top:1px solid var(--rule);padding-top:.35rem"
+             {% if expand_form and event_form.errors %}open{% endif %}>
+      <summary>Ajouter un événement</summary>
+      <form style="margin-top:.6rem"
+            hx-post="{% url 'tracker:add_event' application.pk %}"
+            hx-target="#timeline-panel"
+            hx-swap="outerHTML">
+        <div class="form-grid form-grid--2">
+          {% include "tracker/partials/field.html" with field=event_form.happened_on %}
+          {% include "tracker/partials/field.html" with field=event_form.kind %}
+        </div>
+        {% include "tracker/partials/field.html" with field=event_form.title %}
+        {% include "tracker/partials/field.html" with field=event_form.detail %}
+        <div class="btn-row" style="justify-content:flex-end">
+          <button type="submit" class="btn btn--sm btn--primary">Ajouter au fil</button>
+        </div>
+      </form>
+    </details>
+  </div>
+</div>

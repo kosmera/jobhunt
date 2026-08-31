@@ -1,0 +1,88 @@
+{% load tracker_extras %}
+{% comment %}
+  One row shape for every list on the dashboard and in the analysis. The action
+  on the right is whatever the next real step is, so a row swapped in after a
+  status change looks and behaves like the rest of the list.
+{% endcomment %}
+<div class="listrow" id="app-row-{{ application.pk }}">
+  <div class="listrow__body">
+    <div class="listrow__title"><a href="{{ application.get_absolute_url }}">{{ application.company.name }}</a></div>
+    <div class="listrow__sub">{{ application.title }}</div>
+    <div class="meta" style="margin-top:.3rem">
+      {% if application.follow_up_state == 'overdue' %}
+        <span class="pill t-red">relance en retard de {{ application.days_until_follow_up|cut:"-" }} j</span>
+      {% elif application.follow_up_state == 'today' %}
+        <span class="pill t-amber">relance prévue aujourd'hui</span>
+      {% endif %}
+      {% if application.is_stale %}
+        <span class="pill t-amber">sans nouvelles depuis {{ application.days_since_applied }} j</span>
+      {% endif %}
+
+      {% if not hide_status %}{% include "tracker/partials/status_pill.html" %}{% endif %}
+
+      {% if application.status == 'to_apply' or application.status == 'backlog' %}
+        {% if not hide_status %}<span class="meta__sep">·</span>{% endif %}
+        {% if application.location %}{{ application.location }}<span class="meta__sep">·</span>{% endif %}
+        {% if application.distance_km is not None %}{{ application.distance_km }} km<span class="meta__sep">·</span>{% endif %}
+        CV {{ application.get_cv_language_display|slice:":2"|upper }}
+        {% if application.status == 'to_apply' %}
+          {% if application.primary_cv %}<span class="pill t-green">CV prêt</span>{% else %}<span class="pill t-red">pas de CV</span>{% endif %}
+        {% endif %}
+      {% else %}
+        {% if application.days_since_applied is not None %}
+          {% if not hide_status %}<span class="meta__sep">·</span>{% endif %}envoyée il y a {{ application.days_since_applied }} j
+        {% endif %}
+        {% if application.follow_up_on and application.follow_up_state != 'overdue' and application.follow_up_state != 'today' %}
+          <span class="meta__sep">·</span>relance le {{ application.follow_up_on|date:"d/m" }}
+        {% endif %}
+      {% endif %}
+    </div>
+    {% if show_reason and application.discard_reason %}
+      <p class="prose prose--tight" style="margin-top:.35rem;color:var(--ink-2)">{{ application.discard_reason }}</p>
+    {% endif %}
+  </div>
+
+  <div class="listrow__side">
+    {% include "tracker/partials/gauge.html" with score=application.score band=application.score_band size=gauge_size %}
+
+    {% if application.url %}
+      <a class="icon-btn" href="{{ application.url }}" target="_blank" rel="noopener" aria-label="Ouvrir l'annonce de {{ application.company.name }}">
+        <svg aria-hidden="true"><use href="#i-external"></use></svg>
+      </a>
+    {% endif %}
+
+    {% if application.status == 'to_apply' %}
+      <button type="button" class="btn btn--sm btn--primary"
+              hx-post="{% url 'tracker:set_status' application.pk %}"
+              hx-vals='{"status": "sent", "source": "list"}'
+              hx-target="#app-row-{{ application.pk }}" hx-swap="outerHTML"
+              title="Marque la candidature comme envoyée aujourd'hui et programme la relance">
+        <svg aria-hidden="true"><use href="#i-send"></use></svg> J'ai postulé
+      </button>
+    {% elif application.status == 'backlog' %}
+      <button type="button" class="btn btn--sm"
+              hx-post="{% url 'tracker:set_status' application.pk %}"
+              hx-vals='{"status": "to_apply", "source": "list"}'
+              hx-target="#app-row-{{ application.pk }}" hx-swap="outerHTML"
+              title="Le dossier est prêt : passer en « À postuler »">
+        <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg> À postuler
+      </button>
+    {% elif application.status == 'discarded' %}
+      <button type="button" class="btn btn--sm"
+              hx-post="{% url 'tracker:set_status' application.pk %}"
+              hx-vals='{"status": "backlog", "source": "list"}'
+              hx-target="#app-row-{{ application.pk }}" hx-swap="outerHTML"
+              title="La remettre dans le vivier">
+        <svg aria-hidden="true"><use href="#i-undo"></use></svg> Reprendre
+      </button>
+    {% elif application.needs_attention %}
+      <button type="button" class="btn btn--sm"
+              hx-post="{% url 'tracker:mark_followed_up' application.pk %}"
+              hx-vals='{"source": "list"}'
+              hx-target="#app-row-{{ application.pk }}" hx-swap="outerHTML"
+              title="Consigne la relance et repousse la prochaine">
+        <svg aria-hidden="true"><use href="#i-check"></use></svg> Relancée
+      </button>
+    {% endif %}
+  </div>
+</div>

@@ -1,0 +1,31 @@
+{% load tracker_extras %}
+<div class="stat-grid" id="stats-bar"
+     hx-get="{% url 'tracker:stats_bar' %}"
+     hx-trigger="stats-changed from:body"
+     hx-swap="outerHTML">
+  <div class="stat t-slate">
+    <span class="stat__value">{{ stats.tracked }}</span>
+    <span class="stat__label">candidatures suivies</span>
+    <span class="stat__note">{{ stats.discarded }} écartée{{ stats.discarded|pluralize_fr }}</span>
+  </div>
+  <div class="stat t-amber">
+    <span class="stat__value">{{ stats.to_apply }}</span>
+    <span class="stat__label">prêtes à partir</span>
+    <span class="stat__note">dossier complet</span>
+  </div>
+  <div class="stat t-blue">
+    <span class="stat__value">{{ stats.in_flight }}</span>
+    <span class="stat__label">en attente de réponse</span>
+    <span class="stat__note">{{ stats.sent_total }} envoyée{{ stats.sent_total|pluralize_fr }} au total</span>
+  </div>
+  <div class="stat t-violet">
+    <span class="stat__value">{{ stats.interviewing }}</span>
+    <span class="stat__label">en entretien</span>
+    <span class="stat__note">{% if stats.response_rate is not None %}{{ stats.response_rate }} % de réponses{% else %}pas encore de réponse{% endif %}</span>
+  </div>
+  <div class="stat t-green">
+    <span class="stat__value">{% if stats.average_score %}{{ stats.average_score }}<small>%</small>{% else %}—{% endif %}</span>
+    <span class="stat__label">compatibilité moyenne</span>
+    <span class="stat__note">sur les offres ouvertes</span>
+  </div>
+</div>

@@ -1,0 +1,25 @@
+# Environnement
+# uv.lock est volontairement suivi : c'est lui qui fige les versions.
+.venv/
+__pycache__/
+*.py[cod]
+
+# Base de données locale
+db.sqlite3
+db.sqlite3-wal
+db.sqlite3-shm
+
+# Fichiers téléversés et statiques collectés
+media/
+staticfiles/
+
+# macOS
+.DS_Store
+
+# Dossier personnel : CV, annonces et analyses.
+# Volontairement hors du dépôt — le code peut être publié, pas eux.
+# Tout est déjà repris dans db.sqlite3 et media/, eux aussi ignorés.
+/00_LISEZMOI.md
+/00_Suivi_candidatures.xlsx
+/CV_base/
+/Offres/

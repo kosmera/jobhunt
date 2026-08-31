@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% load tracker_extras %}
+
+{% block title %}Analyse — JobHunt{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <span class="eyebrow">Ce que la recherche dit de toi</span>
+    <h1 class="page-title">Analyse</h1>
+    <p class="page-lede">
+      Le tri, les canaux et les manques. C'est la partie qu'on relit avant de décider où passer
+      la semaine suivante.
+    </p>
+  </div>
+
+  <div class="stack">
+    {% if points %}
+      <section class="panel">
+        <div class="panel__head">
+          <span class="eyebrow">Compatibilité contre trajet</span>
+          <span class="panel__actions meta">le meilleur rapport se lit en haut à gauche</span>
+        </div>
+        <div class="panel__body">
+          <div class="scatter__wrap">
+            <div class="axis-y"><span>100 %</span><span>compatibilité</span><span>0</span></div>
+            <div>
+              <div class="scatter__plot">
+                <div class="scatter__sweet"><span>proche et bien assorti</span></div>
+                {% for point in points %}
+                  <a class="scatter__pt t-{{ point.tone }}"
+                     href="{{ point.application.get_absolute_url }}"
+                     style="left: {{ point.x }}%; bottom: {{ point.y }}%"
+                     data-label="{{ point.application.company.name }} · {{ point.y }} % · {{ point.application.distance_km }} km"
+                     aria-label="{{ point.application.company.name }}, {{ point.y }} % de compatibilité, {{ point.application.distance_km }} kilomètres"></a>
+                {% endfor %}
+              </div>
+              <div class="axis-x">
+                <span>0 km</span>
+                <span>distance depuis Nivelles</span>
+                <span>{{ axis_max }} km</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    {% endif %}
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="eyebrow">Lacunes à combler</span>
+        <span class="panel__actions meta">classées par fréquence dans les annonces</span>
+      </div>
+      <div class="panel__body">
+        {% if gaps %}
+          <div class="gap-grid">
+            {% for gap in gaps %}{% include "tracker/partials/gap_card.html" %}{% endfor %}
+          </div>
+        {% else %}
+          <div class="empty empty--sm"><p class="empty__text">Aucune lacune enregistrée.</p></div>
+        {% endif %}
+      </div>
+    </section>
+
+    <div class="cols cols--2">
+      <section class="panel">
+        <div class="panel__head"><span class="eyebrow">Répartition par secteur</span></div>
+        <div class="panel__body">
+          <div class="barlist">
+            {% for row in by_sector %}
+              <div class="barlist__row t-{% if row.key == 'public' %}violet{% elif row.key == 'parapublic' %}blue{% else %}slate{% endif %}">
+                <span class="barlist__label">{{ row.label }}</span>
+                <span class="barlist__track"><span class="barlist__bar" style="width: {% percent_of row.value max_sector %}%"></span></span>
+                <span class="barlist__value">{{ row.value }}</span>
+              </div>
+            {% endfor %}
+          </div>
+          <hr>
+          <div class="eyebrow" style="margin-bottom:.7rem">Langue du CV</div>
+          <div class="barlist">
+            {% for row in by_language %}
+              <div class="barlist__row t-indigo">
+                <span class="barlist__label">{{ row.label }}</span>
+                <span class="barlist__track"><span class="barlist__bar" style="width: {% percent_of row.value max_language %}%"></span></span>
+                <span class="barlist__value">{{ row.value }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head"><span class="eyebrow">Qualité du vivier</span></div>
+        <div class="panel__body">
+          <div class="barlist">
+            {% for band in bands %}
+              <div class="barlist__row t-{{ band.tone }}">
+                <span class="barlist__label">{{ band.label }}</span>
+                <span class="barlist__track"><span class="barlist__bar" style="width: {% percent_of band.value max_band %}%"></span></span>
+                <span class="barlist__value">{{ band.value }}</span>
+              </div>
+            {% endfor %}
+          </div>
+          <hr>
+          <p class="prose prose--tight" style="color:var(--ink-2)">
+            La compatibilité est une estimation à la main, pas une mesure. Elle sert à ordonner les
+            priorités, pas à prédire une réponse.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="eyebrow">Offres écartées</span>
+        <span class="panel__actions">
+          <span class="meta">une offre écartée reste récupérable</span>
+          <span class="pill t-slate">{{ discarded|length }}</span>
+        </span>
+      </div>
+      <div class="panel__body panel__body--flush">
+        {% for application in discarded %}
+          {% include "tracker/partials/listrow.html" with show_reason=1 gauge_size="sm" hide_status=1 %}
+        {% empty %}
+          <div class="empty empty--sm"><p class="empty__text">Aucune offre écartée.</p></div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="eyebrow">Plateformes explorées</span>
+        <span class="panel__actions meta">ce que chaque canal a donné, y compris quand il n'a rien donné</span>
+      </div>
+      <div class="panel__body panel__body--flush">
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th scope="col">Plateforme</th><th scope="col">Ce que j'y ai cherché</th><th scope="col">Résultat</th></tr>
+            </thead>
+            <tbody>
+              {% for platform in platforms %}
+                <tr>
+                  <td class="table__primary" style="white-space:nowrap">
+                    {% if platform.url %}<a href="{{ platform.url }}" target="_blank" rel="noopener">{{ platform.name }}</a>
+                    {% else %}{{ platform.name }}{% endif %}
+                  </td>
+                  <td class="table__sub" style="max-width:22ch">{{ platform.searched_for }}</td>
+                  <td class="table__sub" style="max-width:60ch">{{ platform.outcome }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% if leads %}
+        <div class="panel__foot">
+          {% for lead in leads %}
+            <div class="eyebrow" style="margin-bottom:.35rem">Pistes non explorées</div>
+            <p class="prose prose--tight">{{ lead.outcome }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

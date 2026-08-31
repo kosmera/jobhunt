@@ -1,0 +1,21 @@
+{% comment %}
+  The score as a ruled reading rather than a progress bar.
+  Params: score (0-100 or None), size ("sm" | "" | "lg"), band (score_band).
+{% endcomment %}
+{% if score is not None %}
+  <span class="gauge{% if size %} gauge--{{ size }}{% endif %} {% if band == 'high' %}t-green{% elif band == 'mid' %}t-amber{% else %}t-red{% endif %}"
+        style="--v: {{ score }}"
+        title="Compatibilité estimée : {{ score }} %">
+    <span class="gauge__scale" aria-hidden="true">
+      <span class="gauge__fill"></span>
+      <span class="gauge__needle"></span>
+    </span>
+    <span class="gauge__value">{{ score }}<sup>%</sup></span>
+  </span>
+{% else %}
+  <span class="gauge gauge--empty{% if size %} gauge--{{ size }}{% endif %} t-slate" style="--v: 0"
+        title="Compatibilité non évaluée">
+    <span class="gauge__scale" aria-hidden="true"></span>
+    <span class="gauge__value">—</span>
+  </span>
+{% endif %}

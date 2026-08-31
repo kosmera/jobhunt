@@ -1,0 +1,40 @@
+{% load tracker_extras %}
+<article class="app-card t-{{ application.status|status_tone }}"
+         id="card-{{ application.pk }}"
+         draggable="true"
+         data-drag-card
+         data-app-id="{{ application.pk }}"
+         data-status="{{ application.status }}"
+         data-status-url="{% url 'tracker:set_status' application.pk %}">
+  <div class="app-card__company">
+    <a href="{{ application.get_absolute_url }}" style="color:inherit;text-decoration:none">{{ application.company.name }}</a>
+    {% if application.follow_up_state == 'overdue' %}
+      <span class="flag t-red" title="Relance en retard">relance</span>
+    {% elif application.follow_up_state == 'today' %}
+      <span class="flag t-amber" title="Relance prévue aujourd'hui">aujourd'hui</span>
+    {% elif application.is_stale %}
+      <span class="flag t-amber" title="Sans nouvelles depuis {{ application.days_since_applied }} jours">{{ application.days_since_applied }} j</span>
+    {% endif %}
+  </div>
+  <div class="app-card__title">{{ application.title }}</div>
+  <div class="app-card__foot">
+    {% include "tracker/partials/gauge.html" with score=application.score band=application.score_band size="sm" %}
+    <span class="meta">
+      {% if application.distance_km is not None %}{{ application.distance_km }} km{% endif %}
+      {% if application.cv_language %}<span class="meta__sep">·</span>{{ application.get_cv_language_display|slice:":2"|upper }}{% endif %}
+    </span>
+    {% if application.next_status %}
+      <span class="app-card__actions">
+        <button type="button" class="icon-btn"
+                hx-post="{% url 'tracker:advance_status' application.pk %}"
+                hx-vals='{"source": "{{ source|default:"board" }}"}'
+                hx-target="{{ swap_target|default:'#board' }}"
+                hx-swap="outerHTML"
+                title="Passer à : {{ application.next_status_label }}"
+                aria-label="Passer à {{ application.next_status_label }}">
+          <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+        </button>
+      </span>
+    {% endif %}
+  </div>
+</article>

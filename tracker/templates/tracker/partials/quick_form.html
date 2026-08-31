@@ -1,0 +1,32 @@
+{% load tracker_extras %}
+<form hx-post="{% url 'tracker:quick_create' %}"
+      hx-target="#quick-add-body"
+      hx-swap="innerHTML">
+  <div class="modal__body">
+    <p class="page-lede" style="margin-top:0;margin-bottom:1rem;font-size:.95rem">
+      Le minimum pour ne pas perdre l'offre. Tu compléteras l'analyse plus tard.
+    </p>
+    <datalist id="company-options">
+      {% for name in company_names %}<option value="{{ name }}"></option>{% endfor %}
+    </datalist>
+    <div class="form-grid form-grid--2">
+      {% include "tracker/partials/field.html" with field=quick_form.company_name %}
+      {% include "tracker/partials/field.html" with field=quick_form.title %}
+      <div class="field field--full">
+        <label class="field__label" for="{{ quick_form.url.id_for_label }}">{{ quick_form.url.label }}</label>
+        {{ quick_form.url }}
+        {% for error in quick_form.url.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+      </div>
+      {% include "tracker/partials/field.html" with field=quick_form.score %}
+      {% include "tracker/partials/field.html" with field=quick_form.cv_language %}
+      {% include "tracker/partials/field.html" with field=quick_form.status %}
+    </div>
+  </div>
+  <div class="modal__foot">
+    <button type="button" class="btn" data-dialog-close>Annuler</button>
+    <button type="submit" class="btn btn--primary">
+      <svg aria-hidden="true"><use href="#i-check"></use></svg>
+      Ajouter au suivi
+    </button>
+  </div>
+</form>

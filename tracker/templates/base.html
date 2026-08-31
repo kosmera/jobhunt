@@ -1,0 +1,94 @@
+{% load static tracker_extras %}<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}JobHunt{% endblock %}</title>
+  <script src="{% static 'js/theme-init.js' %}"></script>
+  <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/archivo-var.woff2' %}" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/newsreader-var.woff2' %}" crossorigin>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <link rel="icon" href="data:image/svg+xml,{% filter urlencode %}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="5" fill="#333fb0"/><path d="M6 22h20M6 22v-5M13 22v-9M20 22v-13M27 22v-7" stroke="#f8f6f2" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>{% endfilter %}">
+</head>
+<body>
+  {% include "tracker/partials/icons.html" %}
+
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <div class="brand__mark">JobHunt<span>·</span></div>
+        <div class="brand__sub">NIVELLES · RAYON 40 KM</div>
+      </div>
+
+      <nav class="rail__nav" aria-label="Navigation principale">
+        {% for item in nav_items %}
+          <a class="rail__link{% if item.is_active %} is-active{% endif %}" href="{{ item.url }}"
+             {% if item.is_active %}aria-current="page"{% endif %}>
+            <svg aria-hidden="true"><use href="#i-{{ item.icon }}"></use></svg>
+            <span>{{ item.label }}</span>
+            {% if item.count %}<span class="rail__count">{{ item.count }}</span>{% endif %}
+          </a>
+        {% endfor %}
+      </nav>
+
+      <div class="rail__foot">
+        <button type="button" class="btn btn--sm btn--ghost" data-dialog-open="quick-add">
+          <svg aria-hidden="true"><use href="#i-plus"></use></svg>
+          Ajouter une offre
+        </button>
+        <a class="rail__link" href="{% url 'admin:index' %}">
+          <svg aria-hidden="true"><use href="#i-file"></use></svg>
+          <span>Données brutes</span>
+        </a>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <span class="topbar__date">{{ today|date:"l j F Y"|upper }}</span>
+        <div class="topbar__actions">
+          <button type="button" class="icon-btn" data-theme-toggle aria-label="Changer de thème">
+            <svg data-theme-icon="sun" hidden aria-hidden="true"><use href="#i-sun"></use></svg>
+            <svg data-theme-icon="moon" aria-hidden="true"><use href="#i-moon"></use></svg>
+          </button>
+          <button type="button" class="btn btn--sm btn--primary" data-dialog-open="quick-add">
+            <svg aria-hidden="true"><use href="#i-plus"></use></svg>
+            Nouvelle offre
+          </button>
+        </div>
+      </header>
+
+      <main class="content{% block content_class %}{% endblock %}">
+        {% if messages %}
+          {% for message in messages %}
+            <div class="flash {% if message.level_tag == 'error' %}t-red{% elif message.level_tag == 'warning' %}t-amber{% else %}t-green{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        {% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  <dialog class="modal" id="quick-add" aria-labelledby="quick-add-title">
+    <div class="modal__head">
+      <h2 class="modal__title" id="quick-add-title">Ajouter une offre</h2>
+      <button type="button" class="icon-btn" style="margin-left:auto" data-dialog-close aria-label="Fermer">
+        <svg aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+    <div id="quick-add-body" hx-get="{% url 'tracker:quick_create' %}" hx-trigger="quick-add-open from:body once">
+      <div class="modal__body"><p class="meta">Chargement…</p></div>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+  <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
+  <script src="{% static 'js/app.js' %}" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

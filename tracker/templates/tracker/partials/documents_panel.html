@@ -1,0 +1,65 @@
+{% load tracker_extras %}
+<div class="panel" id="documents-panel">
+  <div class="panel__head">
+    <span class="eyebrow">Documents</span>
+    <span class="panel__actions">
+      <span class="spinner htmx-indicator"></span>
+      <span class="meta">{{ application.documents.count }}</span>
+    </span>
+  </div>
+  <div class="panel__body">
+    {% for document in application.documents.all %}
+      <div class="doc-item">
+        <span class="doc-ext">{{ document.extension|default:"FIC" }}</span>
+        <div class="doc-item__body">
+          <div class="doc-item__label">
+            <a href="{{ document.file.url }}" download>{{ document.label }}</a>
+          </div>
+          <div class="meta">
+            {{ document.get_kind_display }}
+            {% if document.language %}<span class="meta__sep">·</span>{{ document.get_language_display }}{% endif %}
+            <span class="meta__sep">·</span>{{ document.size_display }}
+            {% if document.is_primary %}<span class="pill t-indigo">principal</span>{% endif %}
+          </div>
+        </div>
+        <a class="icon-btn" href="{{ document.file.url }}" download aria-label="Télécharger {{ document.label }}">
+          <svg aria-hidden="true"><use href="#i-download"></use></svg>
+        </a>
+        <button type="button" class="icon-btn"
+                hx-post="{% url 'tracker:delete_document' document.pk %}"
+                hx-target="#documents-panel" hx-swap="outerHTML"
+                data-confirm="Supprimer « {{ document.label }} » ? Le fichier sera effacé du disque."
+                aria-label="Supprimer {{ document.label }}">
+          <svg aria-hidden="true"><use href="#i-trash"></use></svg>
+        </button>
+      </div>
+    {% empty %}
+      <div class="empty empty--sm">
+        <p class="empty__text">Aucun document. Dépose ici le CV adapté et la lettre pour cette offre.</p>
+      </div>
+    {% endfor %}
+
+    <details class="collapse" style="margin-top:.75rem;border-top:1px solid var(--rule);padding-top:.35rem"
+             {% if expand_form and document_form.errors %}open{% endif %}>
+      <summary>Ajouter un document</summary>
+      <form style="margin-top:.6rem"
+            hx-post="{% url 'tracker:add_document' application.pk %}"
+            hx-target="#documents-panel"
+            hx-swap="outerHTML"
+            hx-encoding="multipart/form-data">
+        {% include "tracker/partials/field.html" with field=document_form.file %}
+        <div class="form-grid form-grid--2">
+          {% include "tracker/partials/field.html" with field=document_form.kind %}
+          {% include "tracker/partials/field.html" with field=document_form.language %}
+        </div>
+        {% include "tracker/partials/field.html" with field=document_form.label %}
+        <label class="checkline" style="margin-bottom:.7rem">
+          {{ document_form.is_primary }} Document principal de ce type
+        </label>
+        <div class="btn-row" style="justify-content:flex-end">
+          <button type="submit" class="btn btn--sm btn--primary">Téléverser</button>
+        </div>
+      </form>
+    </details>
+  </div>
+</div>

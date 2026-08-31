@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% load tracker_extras %}
+
+{% block title %}Pipeline — JobHunt{% endblock %}
+{% block content_class %} content--wide{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div class="page-head__row">
+      <div>
+        <span class="eyebrow">Vue d'ensemble</span>
+        <h1 class="page-title">Pipeline</h1>
+        <p class="page-lede">
+          Fais glisser une carte d'une colonne à l'autre pour changer son statut ; les dates de candidature
+          et de relance suivent toutes seules. La flèche fait la même chose au clavier.
+        </p>
+      </div>
+      <div class="page-head__actions">
+        <a class="btn btn--sm" href="{% url 'tracker:application_list' %}">Vue tableau</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack">
+    {% include "tracker/partials/board.html" %}
+
+    {% if closed %}
+      <section class="panel">
+        <div class="panel__head">
+          <span class="eyebrow">Dossiers clos</span>
+          <span class="panel__actions"><span class="pill t-slate">{{ closed|length }}</span></span>
+        </div>
+        <div class="panel__body panel__body--flush">
+          {% for application in closed %}
+            {% include "tracker/partials/listrow.html" with gauge_size="sm" %}
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+  </div>
+{% endblock %}

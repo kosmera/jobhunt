@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% load tracker_extras %}
+
+{% block title %}Documents — JobHunt{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <span class="eyebrow">{{ total }} fichier{{ total|pluralize_fr }}</span>
+    <h1 class="page-title">Documents</h1>
+    <p class="page-lede">
+      Les CV génériques d'un côté, les versions adaptées de l'autre. Un clic télécharge le fichier
+      tel qu'il sera envoyé.
+    </p>
+  </div>
+
+  <div class="stack">
+    <section class="panel t-indigo">
+      <div class="panel__head">
+        <span class="eyebrow">Bibliothèque</span>
+        <span class="panel__actions meta">CV de base, réutilisables</span>
+      </div>
+      <div class="panel__body">
+        {% for document in library %}
+          <div class="doc-item">
+            <span class="doc-ext">{{ document.extension|default:"FIC" }}</span>
+            <div class="doc-item__body">
+              <div class="doc-item__label"><a href="{{ document.file.url }}" download>{{ document.label }}</a></div>
+              <div class="meta">
+                {{ document.get_kind_display }}
+                {% if document.language %}<span class="meta__sep">·</span>{{ document.get_language_display }}{% endif %}
+                <span class="meta__sep">·</span>{{ document.size_display }}
+              </div>
+            </div>
+            <a class="icon-btn" href="{{ document.file.url }}" download aria-label="Télécharger {{ document.label }}">
+              <svg aria-hidden="true"><use href="#i-download"></use></svg>
+            </a>
+            <button type="button" class="icon-btn"
+                    hx-post="{% url 'tracker:delete_document' document.pk %}"
+                    data-confirm="Supprimer « {{ document.label }} » ? Le fichier sera effacé du disque."
+                    aria-label="Supprimer {{ document.label }}">
+              <svg aria-hidden="true"><use href="#i-trash"></use></svg>
+            </button>
+          </div>
+        {% empty %}
+          <div class="empty empty--sm"><p class="empty__text">Aucun CV de base. Ajoute-en un ci-dessous.</p></div>
+        {% endfor %}
+
+        <details class="collapse" style="margin-top:.9rem;border-top:1px solid var(--rule);padding-top:.4rem">
+          <summary>Ajouter un document à la bibliothèque</summary>
+          <div style="margin-top:.7rem">
+            {% include "tracker/partials/library_form.html" with document_form=library_form %}
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="eyebrow">Rattachés à une candidature</span>
+      </div>
+      <div class="panel__body">
+        {% for application, documents in grouped.items %}
+          <div style="margin-bottom:1.25rem">
+            <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.5rem">
+              <a href="{{ application.get_absolute_url }}" style="font-weight:600;font-size:.88rem;color:inherit;text-decoration:none">{{ application.company.name }}</a>
+              <span class="meta">{{ application.title }}</span>
+              <span style="margin-left:auto">{% include "tracker/partials/status_pill.html" %}</span>
+            </div>
+            {% for document in documents %}
+              <div class="doc-item">
+                <span class="doc-ext">{{ document.extension|default:"FIC" }}</span>
+                <div class="doc-item__body">
+                  <div class="doc-item__label"><a href="{{ document.file.url }}" download>{{ document.label }}</a></div>
+                  <div class="meta">
+                    {{ document.get_kind_display }}
+                    {% if document.language %}<span class="meta__sep">·</span>{{ document.get_language_display }}{% endif %}
+                    <span class="meta__sep">·</span>{{ document.size_display }}
+                    {% if document.is_primary %}<span class="pill t-indigo">principal</span>{% endif %}
+                  </div>
+                </div>
+                <a class="icon-btn" href="{{ document.file.url }}" download aria-label="Télécharger {{ document.label }}">
+                  <svg aria-hidden="true"><use href="#i-download"></use></svg>
+                </a>
+              </div>
+            {% endfor %}
+          </div>
+        {% empty %}
+          <div class="empty empty--sm">
+            <p class="empty__text">Aucun document rattaché. Ouvre une candidature pour y déposer son CV adapté.</p>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+{% endblock %}

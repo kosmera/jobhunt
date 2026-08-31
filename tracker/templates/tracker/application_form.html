@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% load tracker_extras %}
+
+{% block title %}{{ title }} — JobHunt{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div class="meta" style="margin-bottom:.6rem">
+      <a href="{% url 'tracker:application_list' %}" style="color:var(--ink-3)">Candidatures</a>
+      <span class="meta__sep">/</span><span>{{ title }}</span>
+    </div>
+    <h1 class="page-title">{{ title }}</h1>
+    <p class="page-lede">
+      Seuls la société et l'intitulé sont obligatoires. Le reste se complète au fil de la candidature.
+    </p>
+  </div>
+
+  <datalist id="company-options">
+    {% for name in company_names %}<option value="{{ name }}"></option>{% endfor %}
+  </datalist>
+
+  <form method="post" class="stack" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="flash t-red">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <section class="panel">
+      <div class="panel__head"><span class="eyebrow">L'offre</span></div>
+      <div class="panel__body">
+        <div class="form-grid form-grid--2">
+          {% include "tracker/partials/field.html" with field=form.company_name %}
+          {% include "tracker/partials/field.html" with field=form.company_sector %}
+          {% include "tracker/partials/field.html" with field=form.title wide=1 %}
+          {% include "tracker/partials/field.html" with field=form.url wide=1 %}
+        </div>
+        <div class="form-grid form-grid--3">
+          {% include "tracker/partials/field.html" with field=form.location %}
+          {% include "tracker/partials/field.html" with field=form.distance_km %}
+          {% include "tracker/partials/field.html" with field=form.work_mode %}
+          {% include "tracker/partials/field.html" with field=form.score %}
+          {% include "tracker/partials/field.html" with field=form.cv_language %}
+          {% include "tracker/partials/field.html" with field=form.source_platform %}
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head"><span class="eyebrow">Suivi</span></div>
+      <div class="panel__body">
+        <div class="form-grid form-grid--2">
+          {% include "tracker/partials/field.html" with field=form.status %}
+          {% include "tracker/partials/field.html" with field=form.discovered_on %}
+          {% include "tracker/partials/field.html" with field=form.applied_on %}
+          {% include "tracker/partials/field.html" with field=form.follow_up_on %}
+        </div>
+        {% include "tracker/partials/field.html" with field=form.discard_reason %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="eyebrow">L'analyse</span>
+        <span class="panel__actions meta">une ligne par point, en commençant par un tiret</span>
+      </div>
+      <div class="panel__body">
+        {% include "tracker/partials/field.html" with field=form.summary %}
+        <div class="form-grid form-grid--2">
+          {% include "tracker/partials/field.html" with field=form.strengths %}
+          {% include "tracker/partials/field.html" with field=form.weaknesses %}
+        </div>
+        {% include "tracker/partials/field.html" with field=form.strategy %}
+        {% include "tracker/partials/field.html" with field=form.personal_notes %}
+        <details class="collapse">
+          <summary>Texte intégral de l'annonce</summary>
+          <div style="margin-top:.6rem">{% include "tracker/partials/field.html" with field=form.posting_raw %}</div>
+        </details>
+      </div>
+    </section>
+
+    <div class="btn-row" style="justify-content:flex-end">
+      <a class="btn" href="{% if application %}{{ application.get_absolute_url }}{% else %}{% url 'tracker:application_list' %}{% endif %}">Annuler</a>
+      <button type="submit" class="btn btn--primary">
+        <svg aria-hidden="true"><use href="#i-check"></use></svg>
+        {% if application %}Enregistrer{% else %}Créer la candidature{% endif %}
+      </button>
+    </div>
+  </form>
+{% endblock %}

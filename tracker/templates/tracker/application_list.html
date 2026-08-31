@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load tracker_extras %}
+
+{% block title %}Candidatures — JobHunt{% endblock %}
+{% block content_class %} content--wide{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div class="page-head__row">
+      <div>
+        <span class="eyebrow">Toutes les lignes</span>
+        <h1 class="page-title">Candidatures</h1>
+        <p class="page-lede">
+          La recherche porte aussi sur les analyses et tes notes — tape « Terraform » pour retrouver
+          toutes les offres où il te manque.
+        </p>
+      </div>
+      <div class="page-head__actions">
+        <a class="btn btn--sm btn--primary" href="{% url 'tracker:application_create' %}">
+          <svg aria-hidden="true"><use href="#i-plus"></use></svg> Candidature détaillée
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {% include "tracker/partials/application_table.html" %}
+{% endblock %}

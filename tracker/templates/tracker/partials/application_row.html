@@ -1,0 +1,34 @@
+{% load tracker_extras %}
+<tr id="row-{{ application.pk }}" class="t-{{ application.status|status_tone }}">
+  <td>
+    <div class="table__primary"><a href="{{ application.get_absolute_url }}">{{ application.company.name }}</a></div>
+    <div class="table__sub">{{ application.title }}</div>
+  </td>
+  <td><span class="pill t-{% if application.company.sector == 'public' %}violet{% elif application.company.sector == 'parapublic' %}blue{% else %}slate{% endif %}">{{ application.company.get_sector_display }}</span></td>
+  <td class="num">
+    {{ application.location|default:"—" }}
+    {% if application.distance_km is not None %}<br><span style="opacity:.65">{{ application.distance_km }} km</span>{% endif %}
+  </td>
+  <td>{% include "tracker/partials/gauge.html" with score=application.score band=application.score_band size="sm" %}</td>
+  <td class="num">{{ application.get_cv_language_display|slice:":2"|upper }}</td>
+  <td>
+    <select class="input status-select"
+            name="status"
+            aria-label="Statut de {{ application.company.name }}"
+            hx-post="{% url 'tracker:set_status' application.pk %}"
+            hx-vals='{"source": "row"}'
+            hx-target="#row-{{ application.pk }}"
+            hx-swap="outerHTML">
+      {% for value, label in status_choices %}
+        <option value="{{ value }}"{% if value == application.status %} selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="num">{{ application.applied_on|date:"d/m/y"|default:"—" }}</td>
+  <td class="num">
+    {% if application.follow_up_on %}
+      <span class="{% if application.follow_up_state == 'overdue' %}pill t-red{% elif application.follow_up_state == 'today' %}pill t-amber{% endif %}">{{ application.follow_up_on|date:"d/m/y" }}</span>
+    {% else %}—{% endif %}
+  </td>
+  <td class="num">{{ application.documents.count|default:"" }}</td>
+</tr>

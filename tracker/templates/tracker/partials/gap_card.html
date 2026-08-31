@@ -1,0 +1,21 @@
+{% load tracker_extras %}
+<article class="gap {% if gap.status == 'done' %}t-green{% elif gap.status == 'doing' %}t-amber{% else %}t-red{% endif %}"
+         id="gap-{{ gap.pk }}">
+  <div class="gap__head">
+    <h3 class="gap__name">{{ gap.name }}</h3>
+    <span class="gap__demand">{{ gap.demand_label|default:gap.demand_count }}</span>
+  </div>
+  {% if gap.why_it_matters %}<p class="gap__text">{{ gap.why_it_matters }}</p>{% endif %}
+  {% if gap.action_plan %}<p class="gap__plan">{{ gap.action_plan }}</p>{% endif %}
+  <div class="gap__foot">
+    <button type="button" class="chip{% if gap.status == 'todo' %} is-on t-red{% endif %}"
+            hx-post="{% url 'tracker:set_gap_status' gap.pk %}" hx-vals='{"status": "todo"}'
+            hx-target="#gap-{{ gap.pk }}" hx-swap="outerHTML">à travailler</button>
+    <button type="button" class="chip{% if gap.status == 'doing' %} is-on t-amber{% endif %}"
+            hx-post="{% url 'tracker:set_gap_status' gap.pk %}" hx-vals='{"status": "doing"}'
+            hx-target="#gap-{{ gap.pk }}" hx-swap="outerHTML">en cours</button>
+    <button type="button" class="chip{% if gap.status == 'done' %} is-on t-green{% endif %}"
+            hx-post="{% url 'tracker:set_gap_status' gap.pk %}" hx-vals='{"status": "done"}'
+            hx-target="#gap-{{ gap.pk }}" hx-swap="outerHTML">comblée</button>
+  </div>
+</article>

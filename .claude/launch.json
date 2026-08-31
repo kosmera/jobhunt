@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "jobhunt",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "manage.py", "runserver", "8017"],
+      "port": 8017
+    }
+  ]
+}

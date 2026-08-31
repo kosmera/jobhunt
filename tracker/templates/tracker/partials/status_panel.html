@@ -1,0 +1,116 @@
+{% load tracker_extras %}
+<div class="panel" id="status-panel">
+  <div class="panel__head">
+    <span class="eyebrow">Où en est-on</span>
+    <span class="panel__actions">{% include "tracker/partials/status_pill.html" %}</span>
+  </div>
+  <div class="panel__body">
+    <div class="field">
+      <label class="field__label" for="status-{{ application.pk }}">Statut</label>
+      <select class="input" id="status-{{ application.pk }}" name="status"
+              hx-post="{% url 'tracker:set_status' application.pk %}"
+              hx-vals='{"source": "detail"}'
+              hx-target="#status-panel"
+              hx-swap="outerHTML">
+        {% for value, label in status_choices %}
+          <option value="{{ value }}"{% if value == application.status %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {% if application.next_status %}
+      <button type="button" class="btn btn--primary btn--block"
+              hx-post="{% url 'tracker:advance_status' application.pk %}"
+              hx-vals='{"source": "detail"}'
+              hx-target="#status-panel"
+              hx-swap="outerHTML">
+        <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+        {{ application.next_status_label }}
+      </button>
+    {% endif %}
+
+    <dl class="stack" style="gap:.55rem;margin:1rem 0 0">
+      <div style="display:flex;justify-content:space-between;gap:1rem">
+        <dt class="eyebrow">Repérée</dt>
+        <dd class="mono" style="margin:0;font-size:.78rem">{{ application.discovered_on|date:"d/m/Y"|default:"—" }}</dd>
+      </div>
+      <div style="display:flex;justify-content:space-between;gap:1rem">
+        <dt class="eyebrow">Envoyée</dt>
+        <dd class="mono" style="margin:0;font-size:.78rem">
+          {% if application.applied_on %}{{ application.applied_on|date:"d/m/Y" }}
+            <span style="color:var(--ink-3)">· {{ application.days_since_applied }} j</span>
+          {% else %}—{% endif %}
+        </dd>
+      </div>
+      {% if application.closed_on %}
+        <div style="display:flex;justify-content:space-between;gap:1rem">
+          <dt class="eyebrow">Clôturée</dt>
+          <dd class="mono" style="margin:0;font-size:.78rem">{{ application.closed_on|date:"d/m/Y" }}</dd>
+        </div>
+      {% endif %}
+    </dl>
+
+    {% if application.is_in_flight %}
+      <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--rule)">
+        <div class="eyebrow" style="margin-bottom:.5rem">Relance</div>
+        {% if application.follow_up_on %}
+          <p class="meta" style="margin-bottom:.55rem">
+            <span class="pill {% if application.follow_up_state == 'overdue' %}t-red{% elif application.follow_up_state == 'today' %}t-amber{% else %}t-blue{% endif %}">
+              {{ application.follow_up_on|date:"d/m/Y" }}
+            </span>
+            {% if application.follow_up_state == 'overdue' %}
+              en retard de {{ application.days_until_follow_up|cut:"-" }} j
+            {% elif application.follow_up_state == 'today' %}c'est aujourd'hui
+            {% else %}dans {{ application.days_until_follow_up }} j{% endif %}
+          </p>
+          <div class="btn-row">
+            <button type="button" class="btn btn--sm"
+                    hx-post="{% url 'tracker:mark_followed_up' application.pk %}"
+                    hx-vals='{"source": "detail"}'
+                    hx-target="#status-panel" hx-swap="outerHTML">
+              <svg aria-hidden="true"><use href="#i-check"></use></svg> Relance faite
+            </button>
+            <button type="button" class="btn btn--sm btn--ghost"
+                    hx-post="{% url 'tracker:set_follow_up' application.pk %}"
+                    hx-vals='{"source": "detail", "follow_up_on": ""}'
+                    hx-target="#status-panel" hx-swap="outerHTML">Retirer</button>
+          </div>
+        {% else %}
+          <p class="meta" style="margin-bottom:.55rem">Aucune relance programmée.</p>
+          <div class="btn-row">
+            <button type="button" class="btn btn--sm"
+                    hx-post="{% url 'tracker:set_follow_up' application.pk %}"
+                    hx-vals='{"source": "detail", "in_days": "7"}'
+                    hx-target="#status-panel" hx-swap="outerHTML">+7 j</button>
+            <button type="button" class="btn btn--sm"
+                    hx-post="{% url 'tracker:set_follow_up' application.pk %}"
+                    hx-vals='{"source": "detail", "in_days": "14"}'
+                    hx-target="#status-panel" hx-swap="outerHTML">+14 j</button>
+          </div>
+        {% endif %}
+        <form style="margin-top:.55rem;display:flex;gap:.4rem"
+              hx-post="{% url 'tracker:set_follow_up' application.pk %}"
+              hx-target="#status-panel" hx-swap="outerHTML">
+          <input type="hidden" name="source" value="detail">
+          <input type="date" class="input" name="follow_up_on"
+                 value="{{ application.follow_up_on|date:'Y-m-d' }}"
+                 aria-label="Date de relance">
+          <button type="submit" class="btn btn--sm">OK</button>
+        </form>
+      </div>
+    {% endif %}
+
+    {% if application.is_discarded and application.discard_reason %}
+      <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--rule)">
+        <div class="eyebrow" style="margin-bottom:.4rem">Pourquoi elle a été écartée</div>
+        <p class="prose prose--tight" style="color:var(--ink-2)">{{ application.discard_reason }}</p>
+        <button type="button" class="btn btn--sm" style="margin-top:.6rem"
+                hx-post="{% url 'tracker:set_status' application.pk %}"
+                hx-vals='{"source": "detail", "status": "to_apply"}'
+                hx-target="#status-panel" hx-swap="outerHTML">
+          <svg aria-hidden="true"><use href="#i-undo"></use></svg> La reprendre
+        </button>
+      </div>
+    {% endif %}
+  </div>
+</div>

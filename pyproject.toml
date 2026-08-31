@@ -1,0 +1,19 @@
+[project]
+name = "jobhunt"
+version = "1.0.0"
+description = "Suivi de candidatures — Django + HTMX, en remplacement du tableur"
+requires-python = ">=3.12"
+
+dependencies = [
+    "django>=6.1,<7",
+    "openpyxl>=3.1.5",   # lecture du classeur d'origine (commande import_legacy)
+]
+
+[dependency-groups]
+dev = [
+    "pyflakes>=3.4",     # vérification des imports et variables inutilisés
+]
+
+[tool.uv]
+# Application Django, pas une bibliothèque : rien à construire ni à installer.
+package = false

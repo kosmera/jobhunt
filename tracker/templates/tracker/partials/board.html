@@ -1,0 +1,17 @@
+<div class="board" id="board">
+  {% for column in board %}
+    <section class="board__col t-{{ column.tone }}" data-drop-status="{{ column.status }}">
+      <header class="board__head">
+        <span class="board__label">{{ column.label }}</span>
+        <span class="board__count">{{ column.count }}</span>
+      </header>
+      <div class="board__items">
+        {% for application in column.applications %}
+          {% include "tracker/partials/application_card.html" with application=application source="board" swap_target="#board" %}
+        {% empty %}
+          <p class="board__empty">—</p>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+</div>

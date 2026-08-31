@@ -1,0 +1,16 @@
+<div class="panel" id="notes-panel">
+  <div class="panel__head">
+    <span class="eyebrow">Mes notes</span>
+    <span class="panel__actions"><span class="spinner htmx-indicator"></span></span>
+  </div>
+  <form class="panel__body"
+        hx-post="{% url 'tracker:edit_notes' application.pk %}"
+        hx-target="#notes-panel"
+        hx-swap="outerHTML">
+    {{ notes_form.personal_notes }}
+    {% for error in notes_form.personal_notes.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+    <div class="btn-row" style="margin-top:.6rem;justify-content:flex-end">
+      <button type="submit" class="btn btn--sm btn--primary">Enregistrer</button>
+    </div>
+  </form>
+</div>

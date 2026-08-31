@@ -1,0 +1,53 @@
+{% load tracker_extras %}
+<div id="applications">
+  <div class="panel">
+    <form class="filters"
+          hx-get="{% url 'tracker:application_list' %}"
+          hx-target="#applications"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          hx-trigger="change, keyup from:[data-search-input] changed delay:250ms, search">
+      <div class="filters__search">
+        {{ filter_form.q }}
+      </div>
+      {{ filter_form.scope }}
+      {{ filter_form.sector }}
+      {{ filter_form.language }}
+      {{ filter_form.sort }}
+      <span class="meta" style="margin-left:auto">
+        <span class="spinner htmx-indicator"></span>
+        {{ total }} résultat{{ total|pluralize_fr }}
+      </span>
+    </form>
+
+    {% if applications %}
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Société / poste</th>
+              <th scope="col">Secteur</th>
+              <th scope="col">Lieu</th>
+              <th scope="col">Compatibilité</th>
+              <th scope="col">CV</th>
+              <th scope="col">Statut</th>
+              <th scope="col">Envoyée</th>
+              <th scope="col">Relance</th>
+              <th scope="col">Doc.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for application in applications %}
+              {% include "tracker/partials/application_row.html" %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">
+        <div class="empty__title">Aucune candidature ne correspond</div>
+        <p class="empty__text">Élargis la recherche, ou change le filtre « En cours » pour voir aussi les offres écartées.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>

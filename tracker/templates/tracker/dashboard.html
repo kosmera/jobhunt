@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% load tracker_extras %}
+
+{% block title %}Tableau de bord — JobHunt{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div class="page-head__row">
+      <div>
+        <span class="eyebrow">Relevé du jour</span>
+        <h1 class="page-title">
+          {% if attention %}{{ attention|length }} candidature{{ attention|length|pluralize_fr }} {{ attention|length|pluralize_fr:"attend,attendent" }} quelque chose de toi
+          {% elif stats.to_apply %}Rien à relancer. {{ stats.to_apply }} dossier{{ stats.to_apply|pluralize_fr }} {{ stats.to_apply|pluralize_fr:"est prêt,sont prêts" }} à partir
+          {% elif stats.tracked %}Tout est à jour
+          {% else %}Le suivi est vide{% endif %}
+        </h1>
+        <p class="page-lede">
+          {% if attention %}
+            Relances arrivées à échéance et candidatures sans nouvelles depuis plus de {{ stale_days }} jours.
+            Traite-les d'abord, le reste peut attendre.
+          {% elif stats.to_apply %}
+            Les dossiers ci-dessous sont analysés et le CV est adapté. Il ne manque que l'envoi.
+          {% elif stats.tracked %}
+            Aucune relance due, aucune candidature en souffrance. Bon moment pour ouvrir une nouvelle piste.
+          {% else %}
+            Ajoute une première offre, ou lance <code>manage.py import_legacy</code> pour reprendre le tableur.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack">
+    {% include "tracker/partials/stats_bar.html" %}
+
+    {% if attention %}
+      <section class="panel t-red">
+        <div class="panel__head">
+          <span class="eyebrow">À traiter maintenant</span>
+          <span class="panel__actions"><span class="pill t-red">{{ attention|length }}</span></span>
+        </div>
+        <div class="panel__body panel__body--flush">
+          {% for application in attention %}
+            {% include "tracker/partials/listrow.html" with gauge_size="sm" %}
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <div class="cols cols--main">
+      <div class="stack">
+        <section class="panel t-amber">
+          <div class="panel__head">
+            <span class="eyebrow">Prêtes à partir</span>
+            <span class="panel__actions">
+              <span class="meta">classées par compatibilité</span>
+              <span class="pill t-amber">{{ to_apply|length }}</span>
+            </span>
+          </div>
+          <div class="panel__body panel__body--flush">
+            {% for application in to_apply %}
+              {% include "tracker/partials/listrow.html" with hide_status=1 %}
+            {% empty %}
+              <div class="empty empty--sm">
+                <p class="empty__text">Aucun dossier prêt. Passe une offre du vivier en « À postuler » quand son CV est adapté.</p>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="panel t-blue">
+          <div class="panel__head">
+            <span class="eyebrow">En attente de réponse</span>
+            <span class="panel__actions">
+              <span class="meta">les plus anciennes d'abord</span>
+              <span class="pill t-blue">{{ in_flight|length }}</span>
+            </span>
+          </div>
+          <div class="panel__body panel__body--flush">
+            {% for application in in_flight %}
+              {% include "tracker/partials/listrow.html" with gauge_size="sm" %}
+            {% empty %}
+              <div class="empty empty--sm">
+                <p class="empty__text">Rien en attente. Tant que rien n'est parti, rien ne peut revenir.</p>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <div class="panel__head"><span class="eyebrow">Entonnoir</span></div>
+          <div class="panel__body">
+            <div class="funnel">
+              {% for step in funnel %}
+                <div class="funnel__step t-{{ step.tone }}">
+                  <span class="funnel__label">{{ step.label }}</span>
+                  <span class="funnel__track"><span class="funnel__bar" style="width: {{ step.pct }}%"></span></span>
+                  <span class="funnel__value">{{ step.value }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+
+        {% if upcoming %}
+          <section class="panel t-indigo">
+            <div class="panel__head"><span class="eyebrow">À l'agenda</span></div>
+            <div class="panel__body">
+              <ul class="timeline">
+                {% for event in upcoming %}
+                  <li class="timeline__item t-indigo">
+                    <div class="timeline__date">{{ event.happened_on|date:"l j F"|capfirst }}</div>
+                    <div class="timeline__title">{{ event.title }}</div>
+                    <div class="meta"><a href="{{ event.application.get_absolute_url }}">{{ event.application.company.name }}</a></div>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </section>
+        {% endif %}
+
+        <section class="panel">
+          <div class="panel__head">
+            <span class="eyebrow">Vivier</span>
+            <span class="panel__actions"><span class="pill t-slate">{{ backlog|length }}</span></span>
+          </div>
+          <div class="panel__body panel__body--flush">
+            {% for application in backlog %}
+              {% include "tracker/partials/listrow.html" with gauge_size="sm" hide_status=1 %}
+            {% empty %}
+              <div class="empty empty--sm"><p class="empty__text">Vivier vide.</p></div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__head"><span class="eyebrow">Dernières activités</span></div>
+          <div class="panel__body">
+            {% if recent %}
+              <ul class="timeline">
+                {% for event in recent %}
+                  <li class="timeline__item t-{% if event.kind == 'rejection' %}red{% elif event.kind == 'offer' %}green{% elif event.kind == 'interview' or event.kind == 'test' %}violet{% elif event.kind == 'applied' %}blue{% elif event.kind == 'follow_up' %}amber{% else %}slate{% endif %}">
+                    <div class="timeline__date">{{ event.happened_on|date:"d/m/Y" }}</div>
+                    <div class="timeline__title">{{ event.title }}</div>
+                    <div class="meta"><a href="{{ event.application.get_absolute_url }}">{{ event.application.company.name }}</a></div>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <div class="empty empty--sm"><p class="empty__text">Aucune activité consignée.</p></div>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+{% endblock %}

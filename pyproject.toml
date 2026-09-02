@@ -9,11 +9,27 @@ dependencies = [
     "openpyxl>=3.1.5",   # lecture du classeur d'origine (commande import_legacy)
 ]
 
+[project.optional-dependencies]
+postgres = [
+    "psycopg[binary,pool]>=3.2",
+]
+
 [dependency-groups]
 dev = [
     "pyflakes>=3.4",     # vérification des imports et variables inutilisés
+    "django-stubs>=6.1", # types Django pour Pylance/Pyright (« .objects », QuerySet)
 ]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# Disposition « à plat » : sans filtre, setuptools prendrait media/, static/,
+# Offres/ et CV_base/ pour des paquets et refuserait de construire.
+include = ["jobhunt*", "accounts*", "tracker*"]
+
 [tool.uv]
-# Application Django, pas une bibliothèque : rien à construire ni à installer.
+# Application Django, pas une bibliothèque : « uv sync » n'installe pas le
+# projet lui-même (« uv pip install -e . » reste possible si besoin).
 package = false

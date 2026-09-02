@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% comment %}
+  Pages shown before there is a signed-in profile: no rail, no topbar, one
+  card in the middle of the survey sheet. The theme toggle stays so the page
+  matches the rest of the application from the very first screen.
+{% endcomment %}
+
+{% block body %}
+  <div class="auth">
+    <div class="auth__top">
+      <div class="brand__mark">JobHunt<span>·</span></div>
+      <button type="button" class="icon-btn" data-theme-toggle aria-label="Changer de thème">
+        <svg data-theme-icon="sun" aria-hidden="true"><use href="#i-sun"></use></svg>
+        <svg data-theme-icon="moon" aria-hidden="true"><use href="#i-moon"></use></svg>
+      </button>
+    </div>
+
+    <main class="auth__card{% block auth_card_class %}{% endblock %}">
+      <span class="eyebrow">{% block auth_eyebrow %}{% endblock %}</span>
+      <h1 class="auth__title">{% block auth_title %}{% endblock %}</h1>
+      <p class="auth__lede">{% block auth_lede %}{% endblock %}</p>
+
+      {% if messages %}
+        {% for message in messages %}
+          <div class="flash {% if message.level_tag == 'error' %}t-red{% elif message.level_tag == 'warning' %}t-amber{% else %}t-green{% endif %}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+
+      {% block auth_body %}{% endblock %}
+    </main>
+
+    <p class="auth__foot">{% block auth_foot %}{% endblock %}</p>
+  </div>
+{% endblock %}

@@ -2,20 +2,12 @@
 
 from __future__ import annotations
 
-import datetime as dt
-
-from django.conf import settings
-from django.db.models import Count, Q
 from django.urls import reverse
 from django.utils import timezone
 
-from tracker.models import (
-    Application,
-    Document,
-    IN_FLIGHT_STATUSES,
-    OPEN_STATUSES,
-    Status,
-)
+from accounts.services import preferences_for
+from jobhunt.plugins import plugin_nav_badges, plugin_nav_items, plugin_templates
+from tracker import services
 
 NAV_ITEMS = [
     ("tracker:dashboard", "Tableau de bord", "gauge", "attention"),
@@ -28,27 +20,26 @@ NAV_ITEMS = [
 
 def navigation(request):
     today = timezone.localdate()
-    rows = {
-        row["status"]: row["n"]
-        for row in Application.objects.values("status").annotate(n=Count("id"))
+    context = {
+        "today": today,
+        "nav_items": [],
+        "nav_counters": {},
+        "plugin_icon_templates": plugin_templates("icon_templates"),
+        "plugin_application_panels": plugin_templates("application_panels"),
     }
-    attention = Application.objects.filter(
-        Q(follow_up_on__lte=today, status__in=IN_FLIGHT_STATUSES)
-        | Q(
-            status=Status.SENT,
-            applied_on__lte=today - dt.timedelta(days=settings.STALE_AFTER_DAYS),
-        )
-    ).count()
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        # Onboarding, sign-in: no rail, nothing to count.
+        return context
 
-    counters = {
-        "open": sum(rows.get(s, 0) for s in OPEN_STATUSES),
-        "tracked": sum(n for s, n in rows.items() if s != Status.DISCARDED),
-        "attention": attention,
-        "documents": Document.objects.count(),
-    }
+    preferences = getattr(request, "preferences", None) or preferences_for(user)
+    counters = services.nav_counters(
+        user, stale_days=preferences.stale_after_days, today=today
+    )
+    counters.update(plugin_nav_badges(request))
 
     items = []
-    for route, label, icon, counter in NAV_ITEMS:
+    for route, label, icon, counter in NAV_ITEMS + plugin_nav_items():
         url = reverse(route)
         items.append(
             {
@@ -60,4 +51,5 @@ def navigation(request):
                 or (url != "/" and request.path.startswith(url)),
             }
         )
-    return {"nav_items": items, "nav_counters": counters, "today": today}
+    context.update({"nav_items": items, "nav_counters": counters})
+    return context

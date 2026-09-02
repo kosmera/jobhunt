@@ -978,6 +978,70 @@ dialog.modal::backdrop { background: var(--overlay); backdrop-filter: blur(2px);
   font-size: 0.85rem;
 }
 
+/* ------------------------------------------------------------- account -- */
+
+.avatar {
+  flex: none; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--indigo-wash); color: var(--indigo);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+}
+
+.user-chip { display: flex; align-items: center; gap: 0.15rem; }
+.user-chip__link {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.45rem 0.5rem; border-radius: var(--radius);
+  color: inherit; text-decoration: none;
+  transition: background 0.12s var(--ease);
+}
+.user-chip__link:hover, .user-chip__link.is-active { background: var(--card-alt); }
+.user-chip__body { display: flex; flex-direction: column; min-width: 0; }
+.user-chip__name { font-size: 0.82rem; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-chip__sub { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-chip form { flex: none; }
+
+/* Pages before a profile exists: one card on the survey sheet. */
+.auth {
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1.25rem; padding: 2rem 1rem 3rem;
+}
+.auth__top {
+  width: min(440px, 100%);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.auth__card {
+  width: min(440px, 100%);
+  padding: 1.75rem 1.75rem 1.5rem;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  container-type: inline-size;
+}
+.auth__title {
+  margin-top: 0.4rem;
+  font-size: 1.55rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15;
+}
+.auth__lede {
+  margin: 0.6rem 0 1.25rem;
+  font-family: var(--font-prose); font-size: 1rem; line-height: 1.55; color: var(--ink-2);
+}
+.auth__foot { font-size: 0.82rem; color: var(--ink-3); text-align: center; min-height: 1.2em; }
+
+.chooser { display: flex; flex-direction: column; gap: 0.5rem; }
+.chooser__item {
+  display: flex; align-items: center; gap: 0.75rem; width: 100%;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--paper); color: var(--ink); text-align: left; cursor: pointer;
+  font-family: var(--font-ui);
+  transition: border-color 0.12s var(--ease), background 0.12s var(--ease);
+}
+.chooser__item:hover { border-color: var(--indigo); background: var(--card-alt); }
+.chooser__body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1 1 auto; }
+.chooser__name { font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em; }
+.chooser__arrow { width: 16px; height: 16px; flex: none; color: var(--ink-3); }
+
 /* ------------------------------------------------------------ responsive */
 
 .rail__toggle { display: none; }
@@ -995,7 +1059,8 @@ dialog.modal::backdrop { background: var(--overlay); backdrop-filter: blur(2px);
   .brand__sub { display: none; }
   .rail__nav { flex-direction: row; gap: 0.2rem; }
   .rail__link { white-space: nowrap; }
-  .rail__foot { margin: 0 0 0 auto; flex-direction: row; }
+  .rail__foot { margin: 0 0 0 auto; flex-direction: row; align-items: center; }
+  .user-chip__body { display: none; }
   .topbar { padding: 0.7rem 1rem; }
   .content { padding: 1.25rem 1rem 3rem; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }

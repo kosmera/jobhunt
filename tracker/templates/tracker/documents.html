@@ -24,14 +24,14 @@
           <div class="doc-item">
             <span class="doc-ext">{{ document.extension|default:"FIC" }}</span>
             <div class="doc-item__body">
-              <div class="doc-item__label"><a href="{{ document.file.url }}" download>{{ document.label }}</a></div>
+              <div class="doc-item__label"><a href="{{ document.get_download_url }}">{{ document.label }}</a></div>
               <div class="meta">
                 {{ document.get_kind_display }}
                 {% if document.language %}<span class="meta__sep">·</span>{{ document.get_language_display }}{% endif %}
                 <span class="meta__sep">·</span>{{ document.size_display }}
               </div>
             </div>
-            <a class="icon-btn" href="{{ document.file.url }}" download aria-label="Télécharger {{ document.label }}">
+            <a class="icon-btn" href="{{ document.get_download_url }}" aria-label="Télécharger {{ document.label }}">
               <svg aria-hidden="true"><use href="#i-download"></use></svg>
             </a>
             <button type="button" class="icon-btn"
@@ -70,7 +70,7 @@
               <div class="doc-item">
                 <span class="doc-ext">{{ document.extension|default:"FIC" }}</span>
                 <div class="doc-item__body">
-                  <div class="doc-item__label"><a href="{{ document.file.url }}" download>{{ document.label }}</a></div>
+                  <div class="doc-item__label"><a href="{{ document.get_download_url }}">{{ document.label }}</a></div>
                   <div class="meta">
                     {{ document.get_kind_display }}
                     {% if document.language %}<span class="meta__sep">·</span>{{ document.get_language_display }}{% endif %}
@@ -78,7 +78,7 @@
                     {% if document.is_primary %}<span class="pill t-indigo">principal</span>{% endif %}
                   </div>
                 </div>
-                <a class="icon-btn" href="{{ document.file.url }}" download aria-label="Télécharger {{ document.label }}">
+                <a class="icon-btn" href="{{ document.get_download_url }}" aria-label="Télécharger {{ document.label }}">
                   <svg aria-hidden="true"><use href="#i-download"></use></svg>
                 </a>
               </div>

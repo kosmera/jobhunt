@@ -23,3 +23,7 @@ staticfiles/
 /00_Suivi_candidatures.xlsx
 /CV_base/
 /Offres/
+
+# Secrets locaux et artefacts de construction
+.env
+*.egg-info/

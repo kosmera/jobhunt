@@ -1,0 +1,22 @@
+{% extends "accounts/base_auth.html" %}
+
+{% block title %}Inscription — JobHunt{% endblock %}
+{% block auth_eyebrow %}Inscription{% endblock %}
+{% block auth_title %}Ouvre ton suivi{% endblock %}
+{% block auth_lede %}Un nom, un e-mail, un mot de passe. Tes candidatures ne sont visibles que de toi.{% endblock %}
+
+{% block auth_body %}
+  <form method="post" class="stack" style="gap:.2rem" novalidate>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+    {% include "tracker/partials/field.html" with field=form.display_name %}
+    {% include "tracker/partials/field.html" with field=form.email %}
+    {% include "tracker/partials/field.html" with field=form.password1 %}
+    {% include "tracker/partials/field.html" with field=form.password2 %}
+    <button type="submit" class="btn btn--primary btn--block" style="margin-top:.4rem">
+      <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg> Créer mon compte
+    </button>
+  </form>
+{% endblock %}
+
+{% block auth_foot %}Déjà un compte ? <a href="{% url 'accounts:login' %}">Se connecter</a>.{% endblock %}

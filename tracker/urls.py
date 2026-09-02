@@ -15,6 +15,7 @@ urlpatterns = [
     path("candidatures/<int:pk>/modifier/", views.application_update, name="application_update"),
     path("candidatures/<int:pk>/supprimer/", views.application_delete, name="application_delete"),
     path("documents/", views.document_library, name="document_library"),
+    path("documents/<int:pk>/telecharger/", views.document_download, name="document_download"),
     path("analyse/", views.insights, name="insights"),
 
     # --- HTMX fragments ---------------------------------------------------

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <meta name="color-scheme" content="light dark">
+  {# Par défaut htmx 2 n'échange pas les réponses 422 : nos formulaires invalides se re-rendent avec ce code. #}
+  <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true}]}'>
   <title>{% block title %}JobHunt{% endblock %}</title>
   <script src="{% static 'js/theme-init.js' %}"></script>
   <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/archivo-var.woff2' %}" crossorigin>
@@ -14,12 +16,16 @@
 </head>
 <body>
   {% include "tracker/partials/icons.html" %}
+  {% for icon_template in plugin_icon_templates %}{% include icon_template %}{% endfor %}
 
+  {% block body %}
   <div class="shell">
     <aside class="rail">
       <div class="brand">
         <div class="brand__mark">JobHunt<span>·</span></div>
-        <div class="brand__sub">NIVELLES · RAYON 40 KM</div>
+        <div class="brand__sub">
+          {% if request.profile.location %}{{ request.profile.location|upper }} · RAYON {{ request.preferences.search_radius_km }} KM{% else %}SUIVI DE CANDIDATURES{% endif %}
+        </div>
       </div>
 
       <nav class="rail__nav" aria-label="Navigation principale">
@@ -38,10 +44,13 @@
           <svg aria-hidden="true"><use href="#i-plus"></use></svg>
           Ajouter une offre
         </button>
-        <a class="rail__link" href="{% url 'admin:index' %}">
-          <svg aria-hidden="true"><use href="#i-file"></use></svg>
-          <span>Données brutes</span>
-        </a>
+        {% if user.is_staff %}
+          <a class="rail__link" href="{% url 'admin:index' %}">
+            <svg aria-hidden="true"><use href="#i-file"></use></svg>
+            <span>Données brutes</span>
+          </a>
+        {% endif %}
+        {% include "accounts/partials/user_chip.html" %}
       </div>
     </aside>
 
@@ -84,6 +93,7 @@
       <div class="modal__body"><p class="meta">Chargement…</p></div>
     </div>
   </dialog>
+  {% endblock %}
 
   <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
 

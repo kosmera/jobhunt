@@ -1,0 +1,41 @@
+{% extends "accounts/base_auth.html" %}
+{% load tracker_extras %}
+
+{% block title %}Bienvenue — JobHunt{% endblock %}
+{% block auth_eyebrow %}{% if waiting and waiting.applications %}Reprise du suivi{% else %}Premier lancement{% endif %}{% endblock %}
+
+{% block auth_title %}
+  {% if waiting and waiting.applications %}
+    {{ waiting.applications }} candidature{{ waiting.applications|pluralize_fr }} t'attend{{ waiting.applications|pluralize_fr:"ent" }}
+  {% elif account %}
+    Faisons connaissance
+  {% else %}
+    Bienvenue dans JobHunt
+  {% endif %}
+{% endblock %}
+
+{% block auth_lede %}
+  {% if waiting and waiting.applications %}
+    Le suivi existant a été rattaché à ce profil{% if waiting.documents %} ({{ waiting.documents }} document{{ waiting.documents|pluralize_fr }} compris){% endif %}.
+    Il ne manque qu'un nom pour l'ouvrir.
+  {% elif account %}
+    Ce compte n'a pas encore de profil. Deux lignes suffisent, le reste se règle plus tard.
+  {% else %}
+    Aucun mot de passe ici : cet outil tourne sur ta machine. Dis simplement comment t'appeler
+    et d'où tu cherches.
+  {% endif %}
+{% endblock %}
+
+{% block auth_body %}
+  <form method="post" class="stack" style="gap:.2rem" novalidate>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+    {% include "tracker/partials/field.html" with field=form.display_name %}
+    {% include "tracker/partials/field.html" with field=form.headline %}
+    {% include "tracker/partials/field.html" with field=form.location %}
+    <button type="submit" class="btn btn--primary btn--block" style="margin-top:.4rem">
+      <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+      {% if waiting and waiting.applications %}Ouvrir le suivi{% else %}Commencer{% endif %}
+    </button>
+  </form>
+{% endblock %}

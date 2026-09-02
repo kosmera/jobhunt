@@ -23,7 +23,7 @@
             <span><svg style="width:12px;height:12px;vertical-align:-1px" aria-hidden="true"><use href="#i-pin"></use></svg> {{ application.location }}</span>
           {% endif %}
           {% if application.distance_km is not None %}
-            <span class="meta__sep">·</span><span>{{ application.distance_km }} km de Nivelles</span>
+            <span class="meta__sep">·</span><span>{{ application.distance_km }} km de {{ request.profile.location|default:"chez toi" }}</span>
           {% endif %}
           {% if application.work_mode != 'unknown' %}
             <span class="meta__sep">·</span><span>{{ application.get_work_mode_display }}</span>
@@ -127,6 +127,7 @@
 
       <div class="stack">
         {% include "tracker/partials/status_panel.html" %}
+        {% for panel_template in plugin_application_panels %}{% include panel_template %}{% endfor %}
         {% include "tracker/partials/documents_panel.html" %}
         {% include "tracker/partials/contacts_panel.html" %}
       </div>

@@ -1,0 +1,11 @@
+{% extends "accounts/base_auth.html" %}
+
+{% block title %}Inscriptions fermées — JobHunt{% endblock %}
+{% block auth_eyebrow %}Inscription{% endblock %}
+{% block auth_title %}Les inscriptions sont fermées{% endblock %}
+{% block auth_lede %}
+  Cette instance n'accepte pas de nouveau compte pour l'instant. Demande un accès à la personne
+  qui l'administre.
+{% endblock %}
+
+{% block auth_foot %}Déjà un compte ? <a href="{% url 'accounts:login' %}">Se connecter</a>.{% endblock %}

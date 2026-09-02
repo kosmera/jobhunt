@@ -1,0 +1,23 @@
+{% extends "accounts/base_auth.html" %}
+
+{% block title %}Connexion — JobHunt{% endblock %}
+{% block auth_eyebrow %}Connexion{% endblock %}
+{% block auth_title %}Content de te revoir{% endblock %}
+{% block auth_lede %}Ton suivi de candidatures t'attend derrière ce formulaire.{% endblock %}
+
+{% block auth_body %}
+  <form method="post" class="stack" style="gap:.2rem" novalidate>
+    {% csrf_token %}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+    {% include "tracker/partials/field.html" with field=form.username %}
+    {% include "tracker/partials/field.html" with field=form.password %}
+    <button type="submit" class="btn btn--primary btn--block" style="margin-top:.4rem">
+      <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg> Se connecter
+    </button>
+  </form>
+{% endblock %}
+
+{% block auth_foot %}
+  {% if signup_open %}Pas encore de compte ? <a href="{% url 'accounts:signup' %}">Créer le tien</a>.{% endif %}
+{% endblock %}

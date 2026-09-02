@@ -1,23 +1,59 @@
 """Django settings for the JobHunt application tracker.
 
-Single-user, locally-hosted tool. SQLite by default; the ORM keeps the door
-open for a PostgreSQL migration without touching application code.
+Locally hosted by default (one profile, no password), deployable as a shared
+instance with accounts — see ``AUTH_MODE`` below. SQLite by default,
+PostgreSQL when ``JOBHUNT_DATABASE_URL`` says so — the engine is configuration
+(``jobhunt.database``), the application code never chooses it.
 """
 
 import os
 from pathlib import Path
 
+from jobhunt.database import auto_migrate_default, conn_max_age_from_env, database_config
+from jobhunt.plugins import plugin_apps
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# A local, single-user tool. Override via the environment for anything else.
+# A local tool first. Override via the environment for anything else.
 SECRET_KEY = os.environ.get(
     "JOBHUNT_SECRET_KEY", "django-insecure-local-only-jobhunt-tracker-key"
 )
 DEBUG = os.environ.get("JOBHUNT_DEBUG", "1") == "1"
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]", "0.0.0.0", "testserver"]
-CSRF_TRUSTED_ORIGINS = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+
+def _env_list(name: str, default: str) -> list[str]:
+    return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
+
+
+ALLOWED_HOSTS = _env_list("JOBHUNT_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],0.0.0.0,testserver")
+CSRF_TRUSTED_ORIGINS = _env_list(
+    "JOBHUNT_CSRF_TRUSTED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+)
+
+# --- Accounts ---------------------------------------------------------------
+# ``local``: one machine, no password — the first visit creates the profile,
+# a single profile is signed in automatically. ``accounts``: sign-in and
+# sign-up forms, for a shared deployment. Local by default in development.
+AUTH_MODE = os.environ.get("JOBHUNT_AUTH_MODE", "local" if DEBUG else "accounts")
+# Accounts mode only: whether anyone may create an account.
+SIGNUP_OPEN = os.environ.get("JOBHUNT_SIGNUP_OPEN", "1") == "1"
+LOGIN_URL = "accounts:login"
+LOGIN_REDIRECT_URL = "tracker:dashboard"
+LOGOUT_REDIRECT_URL = "accounts:login"
+# Cookies marked Secure are only sent over HTTPS: on by default for a shared
+# deployment, off for a local instance served over plain HTTP.
+_secure_cookies = os.environ.get(
+    "JOBHUNT_SECURE_COOKIES", "1" if AUTH_MODE == "accounts" and not DEBUG else "0"
+) == "1"
+SESSION_COOKIE_SECURE = _secure_cookies
+CSRF_COOKIE_SECURE = _secure_cookies
 
 INSTALLED_APPS = [
+    # Our apps first: Django hands a management command to the first app that
+    # defines it, and ``tracker`` overrides ``runserver`` (auto-migration in
+    # development), which ``django.contrib.staticfiles`` also overrides.
+    "accounts",
+    "tracker",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -25,8 +61,11 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.humanize",
-    "tracker",
 ]
+
+# Extensions hors dépôt (ex. le copilote IA) : installées comme paquets et
+# découvertes par point d'entrée, jamais listées en dur ici.
+INSTALLED_APPS += plugin_apps()
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -34,6 +73,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "accounts.middleware.AccountsMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -50,6 +90,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "accounts.context_processors.account",
                 "tracker.context_processors.navigation",
             ],
         },
@@ -58,12 +99,15 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "jobhunt.wsgi.application"
 
+# One URL picks the engine: SQLite in the project directory by default,
+# PostgreSQL (Azure) in production. Spellings and knobs in jobhunt/database.py
+# and .env.example.
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-        "OPTIONS": {"transaction_mode": "IMMEDIATE", "init_command": "PRAGMA journal_mode=WAL;"},
-    }
+    "default": database_config(
+        os.environ.get("JOBHUNT_DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
+        base_dir=BASE_DIR,
+        conn_max_age=conn_max_age_from_env(),
+    )
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -97,11 +141,34 @@ DATE_INPUT_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"]
 MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
 
 # --- JobHunt-specific knobs -------------------------------------------------
+# ``runserver`` applies pending migrations itself before serving (and after
+# each reload). On by default in development against a local database, never
+# in production nor when a DEBUG checkout points at a remote server — its
+# schema is not something a reload should touch.
+AUTO_MIGRATE = (
+    os.environ.get(
+        "JOBHUNT_AUTO_MIGRATE",
+        "1" if auto_migrate_default(DEBUG, DATABASES["default"].get("HOST", "")) else "0",
+    )
+    == "1"
+)
 # Where the legacy spreadsheet and offer folders live, used by `import_legacy`.
 LEGACY_ROOT = BASE_DIR
 LEGACY_WORKBOOK = BASE_DIR / "00_Suivi_candidatures.xlsx"
 
+# Defaults seeded into a new profile's preferences; each profile then adjusts
+# its own in the settings page.
 # An application sitting in "sent" this long with no news is flagged as stale.
 STALE_AFTER_DAYS = int(os.environ.get("JOBHUNT_STALE_AFTER_DAYS", "14"))
 # Default gap between sending an application and the suggested follow-up.
 DEFAULT_FOLLOW_UP_DAYS = int(os.environ.get("JOBHUNT_FOLLOW_UP_DAYS", "10"))
+# How far from home an offer is worth a look.
+DEFAULT_SEARCH_RADIUS_KM = int(os.environ.get("JOBHUNT_SEARCH_RADIUS_KM", "40"))
+
+# --- Persistence ------------------------------------------------------------
+# The adapter behind the ports of ``tracker/ports.py`` (see
+# ``tracker/adapters/``). A seam for tests and extensions — the in-memory
+# adapter runs the rules without a database — NOT the engine switch: SQLite
+# and PostgreSQL both go through the ORM adapter and are chosen by
+# ``JOBHUNT_DATABASE_URL`` above.
+PERSISTENCE_ADAPTER = "tracker.adapters.django_orm.DjangoPersistence"

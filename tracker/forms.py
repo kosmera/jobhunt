@@ -5,6 +5,8 @@ from __future__ import annotations
 from django import forms
 from django.utils import timezone
 
+from accounts.services import preferences_for, profile_for
+from tracker.adapters import persistence
 from tracker.models import (
     Application,
     Company,
@@ -14,6 +16,7 @@ from tracker.models import (
     ActivityEvent,
     EventKind,
     Language,
+    Platform,
     Sector,
     Status,
     WorkMode,
@@ -32,7 +35,46 @@ class DateField(forms.DateField):
         super().__init__(*args, **kwargs)
 
 
-class ApplicationForm(forms.ModelForm):
+def company_for(user, name: str, sector: str | None = None) -> Company:
+    """The account's company of that name, created on first use.
+
+    A saved row, looked up case-insensitively through the persistence port
+    (extensions call this too — the signature is part of the core's API).
+    """
+    return persistence().companies.get_or_create(user, name, sector)
+
+
+class OwnedApplicationForm(forms.ModelForm):
+    """Shared plumbing: the form belongs to an account, and the company it
+    names is looked up — or created — in that account's list."""
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        if "source_platform" in self.fields:
+            self.fields["source_platform"].queryset = Platform.objects.for_user(user)
+        if "distance_km" in self.fields:
+            location = profile_for(user).location
+            self.fields["distance_km"].help_text = (
+                f"À vol d'oiseau depuis {location}." if location else "À vol d'oiseau depuis chez toi."
+            )
+        if not self.instance.pk and "cv_language" in self.fields:
+            self.fields["cv_language"].initial = preferences_for(user).default_cv_language
+
+    def save(self, commit=True):
+        application = super().save(commit=False)
+        application.owner = self.user
+        application.company = company_for(
+            self.user,
+            self.cleaned_data["company_name"],
+            self.cleaned_data.get("company_sector"),
+        )
+        if commit:
+            application.save()
+        return application
+
+
+class ApplicationForm(OwnedApplicationForm):
     """Full editor for an application, with an inline 'new company' escape hatch."""
 
     company_name = forms.CharField(
@@ -124,23 +166,8 @@ class ApplicationForm(forms.ModelForm):
             )
         return cleaned
 
-    def save(self, commit=True):
-        application = super().save(commit=False)
-        name = self.cleaned_data["company_name"].strip()
-        sector = self.cleaned_data["company_sector"]
-        company, created = Company.objects.get_or_create(
-            name__iexact=name, defaults={"name": name, "sector": sector}
-        )
-        if not created and company.sector != sector:
-            company.sector = sector
-            company.save(update_fields=["sector"])
-        application.company = company
-        if commit:
-            application.save()
-        return application
 
-
-class QuickApplicationForm(forms.ModelForm):
+class QuickApplicationForm(OwnedApplicationForm):
     """The 'I just spotted an offer' form: the five fields that matter."""
 
     company_name = forms.CharField(
@@ -168,11 +195,6 @@ class QuickApplicationForm(forms.ModelForm):
 
     def save(self, commit=True):
         application = super().save(commit=False)
-        name = self.cleaned_data["company_name"].strip()
-        company, _ = Company.objects.get_or_create(
-            name__iexact=name, defaults={"name": name}
-        )
-        application.company = company
         application.discovered_on = timezone.localdate()
         if commit:
             application.save()

@@ -1,0 +1,29 @@
+{% extends "accounts/base_auth.html" %}
+{% load tracker_extras %}
+
+{% block title %}Qui es-tu ? — JobHunt{% endblock %}
+{% block auth_eyebrow %}Profils locaux{% endblock %}
+{% block auth_title %}Qui es-tu ?{% endblock %}
+{% block auth_lede %}Plusieurs profils vivent sur cette machine. Pas de mot de passe : choisis le tien.{% endblock %}
+
+{% block auth_body %}
+  <form method="post" class="chooser">
+    {% csrf_token %}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    {% for entry in entries %}
+      <button type="submit" class="chooser__item" name="user" value="{{ entry.user.pk }}">
+        <span class="avatar">{{ entry.profile.initials }}</span>
+        <span class="chooser__body">
+          <span class="chooser__name">{{ entry.profile.display_name|default:"Profil à compléter" }}</span>
+          <span class="meta">
+            {{ entry.applications }} candidature{{ entry.applications|pluralize_fr }}
+            {% if entry.profile.location %}<span class="meta__sep">·</span>{{ entry.profile.location }}{% endif %}
+          </span>
+        </span>
+        <svg class="chooser__arrow" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+      </button>
+    {% endfor %}
+  </form>
+{% endblock %}
+
+{% block auth_foot %}<a href="{% url 'accounts:onboarding' %}">Créer un autre profil</a>{% endblock %}

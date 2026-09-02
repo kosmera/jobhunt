@@ -3,6 +3,10 @@
 The vocabulary is deliberately kept in English in the code while every
 human-readable label is French, so the UI reads naturally without making the
 codebase awkward to extend.
+
+Every root row — company, platform, skill gap, application, document — belongs
+to an account (``owner``); events and contacts hang off their application.
+Reading code always starts from ``Model.objects.for_user(user)``.
 """
 
 from __future__ import annotations
@@ -11,13 +15,33 @@ import datetime as dt
 from pathlib import Path
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
+from django.db.models import Case, F, IntegerField, Q, When
 from django.db.models.signals import post_delete
-from django.dispatch import receiver
-from django.db.models import Case, IntegerField, When
+from django.dispatch import Signal, receiver
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
+
+#: Sent after an application has been handed to another account, with
+#: ``application`` and ``previous_owner_id``. Extensions that copy the owner
+#: on their own rows listen to it.
+application_owner_changed = Signal()
+
+
+class OwnedQuerySet(models.QuerySet):
+    def for_user(self, user):
+        return self.filter(owner=user)
+
+
+def owner_field(related_name: str) -> models.ForeignKey:
+    return models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name=related_name,
+        verbose_name="propriétaire",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +182,8 @@ class GapStatus(models.TextChoices):
 
 
 class Company(models.Model):
-    name = models.CharField("nom", max_length=200, unique=True)
+    owner = owner_field("companies")
+    name = models.CharField("nom", max_length=200)
     slug = models.SlugField(max_length=220, unique=True, blank=True)
     sector = models.CharField(
         "secteur", max_length=20, choices=Sector.choices, default=Sector.UNKNOWN
@@ -167,10 +192,15 @@ class Company(models.Model):
     location = models.CharField("localisation", max_length=200, blank=True)
     notes = models.TextField("notes", blank=True)
 
+    objects = OwnedQuerySet.as_manager()
+
     class Meta:
         verbose_name = "société"
         verbose_name_plural = "sociétés"
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "name"], name="company_name_per_owner"),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -184,7 +214,8 @@ class Company(models.Model):
 class Platform(models.Model):
     """A job board or channel, and what looking there actually yielded."""
 
-    name = models.CharField("plateforme", max_length=200, unique=True)
+    owner = owner_field("platforms")
+    name = models.CharField("plateforme", max_length=200)
     url = models.URLField("adresse", blank=True)
     searched_for = models.TextField("ce que j'y ai cherché", blank=True)
     outcome = models.TextField("résultat", blank=True)
@@ -195,10 +226,15 @@ class Platform(models.Model):
     )
     last_checked = models.DateField("dernière consultation", null=True, blank=True)
 
+    objects = OwnedQuerySet.as_manager()
+
     class Meta:
         verbose_name = "plateforme"
         verbose_name_plural = "plateformes"
         ordering = ["is_lead", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "name"], name="platform_name_per_owner"),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -207,7 +243,8 @@ class Platform(models.Model):
 class SkillGap(models.Model):
     """A competence the market keeps asking for and that is missing."""
 
-    name = models.CharField("compétence", max_length=200, unique=True)
+    owner = owner_field("skill_gaps")
+    name = models.CharField("compétence", max_length=200)
     demand_count = models.PositiveSmallIntegerField("offres concernées", default=0)
     demand_label = models.CharField("libellé de fréquence", max_length=120, blank=True)
     why_it_matters = models.TextField("pourquoi ça compte", blank=True)
@@ -217,10 +254,15 @@ class SkillGap(models.Model):
     )
     position = models.PositiveSmallIntegerField("ordre", default=0)
 
+    objects = OwnedQuerySet.as_manager()
+
     class Meta:
         verbose_name = "lacune"
         verbose_name_plural = "lacunes"
         ordering = ["position", "-demand_count", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "name"], name="skillgap_name_per_owner"),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -231,7 +273,7 @@ class SkillGap(models.Model):
 # ---------------------------------------------------------------------------
 
 
-class ApplicationQuerySet(models.QuerySet):
+class ApplicationQuerySet(OwnedQuerySet):
     def open(self):
         return self.filter(status__in=OPEN_STATUSES)
 
@@ -259,14 +301,27 @@ class ApplicationQuerySet(models.QuerySet):
             status__in=IN_FLIGHT_STATUSES,
         )
 
-    def stale(self, days: int | None = None, on: dt.date | None = None):
-        """Sent a while ago, still no reaction from the other side."""
-        days = settings.STALE_AFTER_DAYS if days is None else days
+    def stale(self, days: int, on: dt.date | None = None):
+        """Sent ``days`` ago or more, still no reaction from the other side.
+
+        The threshold is the owner's preference, so callers pass it in."""
         on = on or timezone.localdate()
         return self.filter(
             status=Status.SENT,
             applied_on__isnull=False,
             applied_on__lte=on - dt.timedelta(days=days),
+        )
+
+    def needs_attention(self, days: int, on: dt.date | None = None):
+        """A follow-up that is due, or an application gone stale."""
+        on = on or timezone.localdate()
+        return self.filter(
+            Q(follow_up_on__lte=on, status__in=IN_FLIGHT_STATUSES)
+            | Q(
+                status=Status.SENT,
+                applied_on__isnull=False,
+                applied_on__lte=on - dt.timedelta(days=days),
+            )
         )
 
     def by_pipeline_order(self):
@@ -278,15 +333,22 @@ class ApplicationQuerySet(models.QuerySet):
             ],
             output_field=IntegerField(),
         )
-        return self.annotate(_stage=ordering).order_by("_stage", "-score", "company__name")
+        # ``nulls_last``: SQLite sorts NULL first on DESC, PostgreSQL last —
+        # an unscored offer must end its column on both.
+        return self.annotate(_stage=ordering).order_by(
+            "_stage", F("score").desc(nulls_last=True), "company__name"
+        )
 
     def with_related(self):
-        return self.select_related("company", "source_platform")
+        # ``owner__preferences`` feeds ``is_stale`` / ``apply_status`` without
+        # a query per row.
+        return self.select_related("company", "source_platform", "owner__preferences")
 
 
 class Application(models.Model):
     """One job offer being tracked, from triage to outcome."""
 
+    owner = owner_field("applications")
     company = models.ForeignKey(
         Company, on_delete=models.PROTECT, related_name="applications", verbose_name="société"
     )
@@ -295,7 +357,7 @@ class Application(models.Model):
 
     location = models.CharField("lieu", max_length=200, blank=True)
     distance_km = models.PositiveSmallIntegerField(
-        "distance (km)", null=True, blank=True, help_text="À vol d'oiseau depuis Nivelles."
+        "distance (km)", null=True, blank=True, help_text="À vol d'oiseau depuis chez toi."
     )
     work_mode = models.CharField(
         "mode de travail", max_length=10, choices=WorkMode.choices, default=WorkMode.UNKNOWN
@@ -352,14 +414,41 @@ class Application(models.Model):
     def __str__(self) -> str:
         return f"{self.company.name} — {self.title}"
 
+    @classmethod
+    def from_db(cls, db, field_names, values, **kwargs):
+        instance = super().from_db(db, field_names, values, **kwargs)
+        # Remembered so that a change of owner can be propagated on save.
+        instance._loaded_owner_id = dict(zip(field_names, values)).get("owner_id")
+        return instance
+
     def save(self, *args, **kwargs):
+        if self.company_id and self.owner_id and self.company.owner_id != self.owner_id:
+            # A slip here would silently show one profile's company to another.
+            raise ValueError("La société et la candidature n'ont pas le même propriétaire.")
         if not self.slug:
             base = slugify(f"{self.company.name}-{self.title}")[:200] or "candidature"
             self.slug = unique_slug(Application, base)
+        previous_owner_id = getattr(self, "_loaded_owner_id", None)
         super().save(*args, **kwargs)
+        if previous_owner_id is not None and previous_owner_id != self.owner_id:
+            # Attached documents carry a copy of the owner; extensions may too.
+            self.documents.exclude(owner_id=self.owner_id).update(owner_id=self.owner_id)
+            application_owner_changed.send(
+                sender=Application, application=self, previous_owner_id=previous_owner_id
+            )
+        self._loaded_owner_id = self.owner_id
 
     def get_absolute_url(self) -> str:
         return reverse("tracker:application_detail", args=[self.pk])
+
+    def owner_preferences(self):
+        """The owner's thresholds, from the ``select_related`` row when loaded."""
+        from accounts.services import preferences_for
+
+        try:
+            return self.owner.preferences
+        except (AttributeError, ObjectDoesNotExist):
+            return preferences_for(self.owner)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -422,16 +511,25 @@ class Application(models.Model):
 
     @property
     def is_stale(self) -> bool:
-        days = self.days_since_applied
-        return (
-            self.status == Status.SENT
-            and days is not None
-            and days >= settings.STALE_AFTER_DAYS
+        # The rule lives in ``tracker.domain``; the threshold is resolved
+        # lazily so a row that cannot be stale never loads the preferences.
+        from tracker import domain
+
+        return domain.is_stale(
+            self,
+            stale_days=lambda: self.owner_preferences().stale_after_days,
+            today=timezone.localdate(),
         )
 
     @property
     def needs_attention(self) -> bool:
-        return self.follow_up_state in {"overdue", "today"} or self.is_stale
+        from tracker import domain
+
+        return domain.needs_attention(
+            self,
+            stale_days=lambda: self.owner_preferences().stale_after_days,
+            today=timezone.localdate(),
+        )
 
     # -- documents ---------------------------------------------------------
 
@@ -466,36 +564,23 @@ class Application(models.Model):
     def apply_status(self, new_status: str, *, note: str = "") -> bool:
         """Move to ``new_status``, keeping dates and the timeline in step.
 
-        Returns ``True`` when something actually changed.
+        Returns ``True`` when something actually changed. The rule lives in
+        ``tracker.domain``; this method persists its outcome the model way
+        (``save`` then ``log``). The use case ``tracker.services.change_status``
+        does the same through the ports, in one transaction.
         """
-        if new_status == self.status or new_status not in Status.values:
+        from tracker import domain
+
+        transition = domain.plan_transition(
+            self,
+            new_status,
+            today=timezone.localdate(),
+            follow_up_days=lambda: self.owner_preferences().follow_up_days,
+        )
+        if transition is None:
             return False
-
-        previous = Status(self.status).label
-        today = timezone.localdate()
-        self.status = new_status
-
-        if new_status in IN_FLIGHT_STATUSES and not self.applied_on:
-            self.applied_on = today
-        if new_status == Status.SENT and not self.follow_up_on:
-            self.follow_up_on = today + dt.timedelta(days=settings.DEFAULT_FOLLOW_UP_DAYS)
-        if new_status in CLOSED_STATUSES:
-            self.closed_on = self.closed_on or today
-            self.follow_up_on = None
-        else:
-            self.closed_on = None
-
         self.save()
-
-        kind = {
-            Status.SENT: EventKind.APPLIED,
-            Status.INTERVIEW: EventKind.INTERVIEW,
-            Status.SCREENING: EventKind.CALL,
-            Status.TECHNICAL: EventKind.TEST,
-            Status.OFFER: EventKind.OFFER,
-            Status.REJECTED: EventKind.REJECTION,
-        }.get(new_status, EventKind.STATUS)
-        self.log(kind, f"{previous} → {Status(new_status).label}", note)
+        self.log(transition.event_kind, transition.event_title, note)
         return True
 
 
@@ -528,8 +613,13 @@ def document_upload_to(instance: "Document", filename: str) -> str:
 
 
 class Document(models.Model):
-    """A file attached to an application, or a reusable base CV."""
+    """A file attached to an application, or a reusable base CV.
 
+    ``owner`` is set even when the document hangs off an application (it is
+    then the application's owner) so the library, the counters and the
+    download view filter on one condition."""
+
+    owner = owner_field("documents")
     application = models.ForeignKey(
         Application,
         on_delete=models.CASCADE,
@@ -551,6 +641,8 @@ class Document(models.Model):
     source_path = models.CharField("chemin d'origine", max_length=500, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
+    objects = OwnedQuerySet.as_manager()
+
     class Meta:
         verbose_name = "document"
         verbose_name_plural = "documents"
@@ -558,6 +650,17 @@ class Document(models.Model):
 
     def __str__(self) -> str:
         return self.label
+
+    def save(self, *args, **kwargs):
+        if self.application_id:
+            if not self.owner_id:
+                self.owner_id = self.application.owner_id
+            elif self.owner_id != self.application.owner_id:
+                raise ValueError("Le document et la candidature n'ont pas le même propriétaire.")
+        super().save(*args, **kwargs)
+
+    def get_download_url(self) -> str:
+        return reverse("tracker:document_download", args=[self.pk])
 
     @property
     def extension(self) -> str:

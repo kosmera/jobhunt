@@ -4,7 +4,7 @@
     {
       "name": "jobhunt",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "manage.py", "runserver", "8017"],
+      "runtimeArgs": ["run", "--no-sync", "manage.py", "runserver", "8017"],
       "port": 8017
     }
   ]

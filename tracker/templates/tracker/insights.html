@@ -36,7 +36,7 @@
               </div>
               <div class="axis-x">
                 <span>0 km</span>
-                <span>distance depuis Nivelles</span>
+                <span>distance depuis {{ request.profile.location|default:"chez toi" }}</span>
                 <span>{{ axis_max }} km</span>
               </div>
             </div>

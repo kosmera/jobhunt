@@ -1,0 +1,23 @@
+{% comment %}
+  The signed-in profile, at the foot of the rail. Local mode has no "sign
+  out" — with one profile it would sign straight back in — only "switch"
+  when there is someone to switch to.
+{% endcomment %}
+<div class="user-chip">
+  <a class="user-chip__link{% if page == 'settings' %} is-active{% endif %}" href="{% url 'accounts:settings' %}" title="Réglages">
+    <span class="avatar">{{ request.profile.initials }}</span>
+    <span class="user-chip__body">
+      <span class="user-chip__name">{{ request.profile.display_name|default:user.get_username }}</span>
+      <span class="user-chip__sub">{% if request.profile.headline %}{{ request.profile.headline }}{% else %}Réglages{% endif %}</span>
+    </span>
+  </a>
+  {% if not auth_is_local or local_profile_count > 1 %}
+    <form method="post" action="{% url 'accounts:logout' %}">
+      {% csrf_token %}
+      <button type="submit" class="icon-btn" aria-label="{% if auth_is_local %}Changer de profil{% else %}Se déconnecter{% endif %}"
+              title="{% if auth_is_local %}Changer de profil{% else %}Se déconnecter{% endif %}">
+        <svg aria-hidden="true"><use href="#i-logout"></use></svg>
+      </button>
+    </form>
+  {% endif %}
+</div>

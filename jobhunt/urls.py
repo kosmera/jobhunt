@@ -1,12 +1,18 @@
-from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from jobhunt.plugins import get_plugins
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("", include("accounts.urls")),
     path("", include("tracker.urls")),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Chaque extension est montée sous son propre préfixe.
+for plugin in get_plugins():
+    urlpatterns.append(path(plugin.url_prefix, include(plugin.urls)))
+
+# Les fichiers téléversés ne sont jamais servis tels quels, même en DEBUG :
+# un document appartient à un profil et se télécharge par sa vue
+# (``tracker:document_download``), qui vérifie le propriétaire.

@@ -13,6 +13,7 @@ import unicodedata
 from pathlib import Path
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.files import File
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -194,6 +195,28 @@ class Command(BaseCommand):
             action="store_true",
             help="N'importer que les données, sans copier les documents.",
         )
+        parser.add_argument(
+            "--user",
+            default="",
+            help="Identifiant du profil qui reçoit les données (facultatif s'il n'y en a qu'un).",
+        )
+
+    def resolve_owner(self, username: str):
+        User = get_user_model()
+        if username:
+            user = User.objects.filter(username=username).first()
+            if user is None:
+                raise CommandError(f"Aucun profil nommé « {username} ».")
+            return user
+        users = list(User.objects.order_by("pk")[:3])
+        if len(users) == 1:
+            return users[0]
+        if not users:
+            raise CommandError(
+                "Aucun profil : ouvre l'application une première fois, puis relance l'import."
+            )
+        names = ", ".join(u.get_username() for u in User.objects.order_by("username"))
+        raise CommandError(f"Plusieurs profils : précise --user parmi {names}.")
 
     def handle(self, *args, **options):
         try:
@@ -201,6 +224,7 @@ class Command(BaseCommand):
         except ImportError as exc:  # pragma: no cover - dependency is declared
             raise CommandError("openpyxl est requis : pip install openpyxl") from exc
 
+        self.owner = self.resolve_owner(options["user"])
         workbook_path = Path(options["workbook"])
         root = Path(options["root"])
         if not workbook_path.exists():
@@ -255,9 +279,10 @@ class Command(BaseCommand):
 
     def get_company(self, name: str, sector: str = "", location: str = "") -> Company:
         name = norm(name)
-        company = Company.objects.filter(name__iexact=name).first()
+        company = Company.objects.for_user(self.owner).filter(name__iexact=name).first()
         if company is None:
             company = Company.objects.create(
+                owner=self.owner,
                 name=name,
                 sector=SECTOR_MAP.get(fold(sector), Sector.UNKNOWN),
                 location=norm(location),
@@ -287,6 +312,7 @@ class Command(BaseCommand):
                 continue
             is_lead = fold(name).startswith("pistes non")
             platform, created = Platform.objects.update_or_create(
+                owner=self.owner,
                 name=name,
                 defaults={
                     "searched_for": norm(row.get("ce que j'y ai cherche"))
@@ -310,9 +336,9 @@ class Command(BaseCommand):
         for key, platform in registry.items():
             if key.startswith(first) or first.startswith(key):
                 return platform
-        platform = Platform.objects.filter(name__iexact=first).first()
+        platform = Platform.objects.for_user(self.owner).filter(name__iexact=first).first()
         if platform is None:
-            platform = Platform.objects.create(name=first.title())
+            platform = Platform.objects.create(owner=self.owner, name=first.title())
             self.counts["platforms"] += 1
             registry[first] = platform
         return platform
@@ -397,6 +423,7 @@ class Command(BaseCommand):
             demand_label = norm(row.get("combien d'offres la demandent"))
             match = re.search(r"(\d+)", demand_label)
             _, created = SkillGap.objects.update_or_create(
+                owner=self.owner,
                 name=name,
                 defaults={
                     "demand_count": int(match.group(1)) if match else 0,
@@ -411,11 +438,11 @@ class Command(BaseCommand):
                 self.counts["gaps"] += 1
 
     def upsert_application(self, company: Company, title: str, defaults: dict) -> Application:
-        application = Application.objects.filter(
+        application = Application.objects.for_user(self.owner).filter(
             company=company, title__iexact=title
         ).first()
         if application is None:
-            application = Application(company=company, title=title)
+            application = Application(owner=self.owner, company=company, title=title)
             for field, value in defaults.items():
                 if not is_blank(value):
                     setattr(application, field, value)
@@ -499,7 +526,7 @@ class Command(BaseCommand):
         title_words = set(slugify(parts[2].replace("-", " ")).split("-")) if len(parts) > 2 else set()
 
         candidates = []
-        for application in Application.objects.select_related("company"):
+        for application in Application.objects.for_user(self.owner).select_related("company"):
             company_key = squash(application.company.name)
             if not company_key or not company_token:
                 continue
@@ -557,11 +584,12 @@ class Command(BaseCommand):
 
     def store_document(self, path: Path, *, application, kind, is_primary=False):
         source = str(path)
-        if Document.objects.filter(source_path=source).exists():
+        if Document.objects.for_user(self.owner).filter(source_path=source).exists():
             return
         label = path.name
         with path.open("rb") as handle:
             document = Document(
+                owner=self.owner,
                 application=application,
                 kind=kind,
                 label=label,

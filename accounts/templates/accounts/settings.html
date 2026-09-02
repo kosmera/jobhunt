@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% load tracker_extras %}
+
+{% block title %}Réglages — JobHunt{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <span class="eyebrow">Ton compte</span>
+    <h1 class="page-title">Réglages</h1>
+    <p class="page-lede">
+      Qui tu es, d'où tu cherches, et les délais que le suivi applique tout seul.
+    </p>
+  </div>
+
+  <div class="cols cols--2" style="align-items:start">
+    <div class="stack">
+      <section class="panel" id="profil">
+        <div class="panel__head">
+          <span class="eyebrow">Profil</span>
+          <span class="panel__actions meta">identifiant : <span class="mono">{{ user.get_username }}</span></span>
+        </div>
+        <form method="post" action="{% url 'accounts:settings_section' 'profil' %}" class="panel__body" novalidate>
+          {% csrf_token %}
+          {% for error in profile_form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+          {% include "tracker/partials/field.html" with field=profile_form.display_name %}
+          {% include "tracker/partials/field.html" with field=profile_form.headline %}
+          <div class="form-grid form-grid--2">
+            {% include "tracker/partials/field.html" with field=profile_form.location %}
+            {% include "tracker/partials/field.html" with field=profile_form.email %}
+          </div>
+          <div class="btn-row" style="justify-content:flex-end">
+            <button type="submit" class="btn btn--primary btn--sm">
+              <svg aria-hidden="true"><use href="#i-check"></use></svg> Enregistrer le profil
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel" id="mot-de-passe">
+        <div class="panel__head">
+          <span class="eyebrow">{% if has_password %}Mot de passe{% else %}Définir un mot de passe{% endif %}</span>
+          {% if is_local %}
+            <span class="panel__actions meta">facultatif en local</span>
+          {% endif %}
+        </div>
+        <form method="post" action="{% url 'accounts:settings_section' 'mot-de-passe' %}" class="panel__body" novalidate>
+          {% csrf_token %}
+          {% if is_local %}
+            <p class="meta" style="margin-bottom:.9rem">
+              Sur cette machine personne ne te le demandera. Il ne sert qu'à passer un jour en
+              mode comptes, avec l'e-mail ci-contre comme identifiant.
+            </p>
+          {% endif %}
+          {% for error in password_form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+          {% for field in password_form %}
+            {% include "tracker/partials/field.html" with field=field %}
+          {% endfor %}
+          <div class="btn-row" style="justify-content:flex-end">
+            <button type="submit" class="btn btn--sm">
+              <svg aria-hidden="true"><use href="#i-check"></use></svg>
+              {% if has_password %}Changer le mot de passe{% else %}Définir le mot de passe{% endif %}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div class="stack">
+      <section class="panel" id="preferences">
+        <div class="panel__head"><span class="eyebrow">Préférences</span></div>
+        <form method="post" action="{% url 'accounts:settings_section' 'preferences' %}" class="panel__body" novalidate>
+          {% csrf_token %}
+          {% for error in preferences_form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+          <div class="form-grid form-grid--2">
+            {% include "tracker/partials/field.html" with field=preferences_form.follow_up_days %}
+            {% include "tracker/partials/field.html" with field=preferences_form.stale_after_days %}
+            {% include "tracker/partials/field.html" with field=preferences_form.search_radius_km %}
+            {% include "tracker/partials/field.html" with field=preferences_form.default_cv_language %}
+          </div>
+          <div class="btn-row" style="justify-content:flex-end">
+            <button type="submit" class="btn btn--primary btn--sm">
+              <svg aria-hidden="true"><use href="#i-check"></use></svg> Enregistrer les préférences
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel t-red" id="supprimer">
+        <div class="panel__head"><span class="eyebrow">Supprimer le compte</span></div>
+        <form method="post" action="{% url 'accounts:settings_section' 'supprimer' %}" class="panel__body" novalidate
+              onsubmit="return confirm('Tout supprimer, définitivement ?')">
+          {% csrf_token %}
+          <p class="prose prose--tight" style="color:var(--ink-2);margin-bottom:.9rem">
+            Candidatures, sociétés, documents, événements : tout ce que ce profil possède disparaît
+            avec lui, fichiers compris. Il n'y a pas de corbeille.
+          </p>
+          {% include "tracker/partials/field.html" with field=delete_form.confirm %}
+          <div class="btn-row" style="justify-content:flex-end">
+            <button type="submit" class="btn btn--sm btn--danger">
+              <svg aria-hidden="true"><use href="#i-trash"></use></svg> Supprimer mon compte
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </div>
+{% endblock %}

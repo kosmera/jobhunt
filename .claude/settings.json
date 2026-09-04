@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR:-.}\"/.claude/hooks/check-python.sh",
+            "timeout": 90,
+            "statusMessage": "Pyright et pyflakes sur le projet…"
+          }
+        ]
+      }
+    ]
+  }
+}

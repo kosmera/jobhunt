@@ -5,14 +5,18 @@ work to ``tracker.queries`` (what a page lists) or ``tracker.services``
 (what an action does), and renders. Single rows come from the persistence
 ports, scoped on the signed-in account — another account's row is a 404,
 converted from ``NotFound`` in exactly one place (``or_404``). Thresholds
-come from ``request.preferences``; the use cases never read them.
+come from ``request.preferences``; the use cases never read them. Files
+come and go through the storage port (``storage()``): the views never know
+the provider, only whether it streams through the application or hands
+out links of its own.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import json
-from pathlib import Path
+import logging
+from pathlib import PurePosixPath
 
 from django.contrib import messages
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest
@@ -21,8 +25,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST, require_http_methods
 
-from tracker import queries, services
-from tracker.adapters import persistence
+from tracker import links, privacy, queries, services
+from tracker.adapters import cv_analyzer, persistence, storage
 from tracker.forms import (
     ApplicationFilterForm,
     ApplicationForm,
@@ -33,8 +37,17 @@ from tracker.forms import (
     NotesForm,
     QuickApplicationForm,
 )
-from tracker.models import PIPELINE_STATUSES, Application, EventKind, Status
-from tracker.ports import NotFound
+from tracker.models import (
+    PIPELINE_STATUSES,
+    Application,
+    DocumentKind,
+    EventKind,
+    GapStatus,
+    Status,
+)
+from tracker.ports import MissingFile, NotFound, StorageError
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -237,15 +250,70 @@ def document_library(request):
     )
 
 
-def document_download(request, pk: int):
-    """Files never leave ``MEDIA_ROOT`` by URL: this is the only way out, and
-    it checks who is asking."""
-    document = or_404(persistence().documents.get, request.user, pk)
+def _stream_file(file_name: str) -> FileResponse:
+    """The file's bytes, through the storage port, as an attachment."""
     try:
-        handle = document.file.open("rb")
-    except (FileNotFoundError, ValueError):
-        raise Http404("Fichier introuvable sur le disque.")
-    return FileResponse(handle, as_attachment=True, filename=Path(document.file.name).name)
+        handle = storage().open_file(file_name)
+    except MissingFile:
+        raise Http404("Fichier introuvable dans le stockage.")
+    response = FileResponse(handle, as_attachment=True, filename=PurePosixPath(file_name).name)
+    if "Content-Length" not in response.headers:
+        # A handle that cannot seek (a blob download) still knows its size.
+        size = getattr(handle, "size", None)
+        if isinstance(size, int):
+            response.headers["Content-Length"] = str(size)
+    return response
+
+
+def _storage_unavailable(exc: StorageError) -> HttpResponse:
+    logger.warning("Stockage des fichiers indisponible : %s", exc)
+    return HttpResponse(
+        "Le stockage des fichiers ne répond pas pour le moment ; réessaie dans un instant.",
+        status=503,
+        content_type="text/plain; charset=utf-8",
+    )
+
+
+def document_download(request, pk: int):
+    """Files never leave the storage by their path: this view checks who is
+    asking, then streams the file — or, when the bytes live elsewhere
+    (Azure), sends the browser to a short-lived link to them."""
+    document = or_404(persistence().documents.get, request.user, pk)
+    file_name = document.file.name or ""
+    if not file_name:
+        # A row whose file was cleared elsewhere (the admin): nothing to send.
+        raise Http404("Ce document n'a pas de fichier.")
+    files = storage()
+    try:
+        if files.served_by_app:
+            return _stream_file(file_name)
+        return redirect(files.get_secure_url(file_name))
+    except StorageError as exc:
+        return _storage_unavailable(exc)
+
+
+def private_file(request, token: str):
+    """The link behind ``get_secure_url`` when the application serves the
+    files itself: signed, expiring, and checked against the rows.
+
+    Three things have to hold: the signature (the token is ours and intact),
+    the age, and — the one that decides — that the signed-in account really
+    owns a document with that file. The account named in the token is only a
+    first filter; a link is never authority on its own, so a forged or
+    borrowed one reads like a wrong pk: 404.
+    """
+    try:
+        file_name, owner_id = links.read_link(token)
+    except links.BadLink:
+        raise Http404("Lien invalide ou expiré.")
+    if owner_id is not None and owner_id != request.user.pk:
+        raise Http404("Lien invalide ou expiré.")
+    if not persistence().documents.owns_file(request.user, file_name):
+        raise Http404("Lien invalide ou expiré.")
+    try:
+        return _stream_file(file_name)
+    except StorageError as exc:
+        return _storage_unavailable(exc)
 
 
 def insights(request):
@@ -420,9 +488,25 @@ def delete_event(request, pk: int):
     return toast(response, "Événement supprimé.", "info")
 
 
+def _known_identity(request) -> dict[str, str]:
+    """What the anonymiser may take for granted about the signed-in account."""
+    profile = request.profile
+    return privacy.known_identity(
+        display_name=profile.display_name,
+        username=request.user.get_username(),
+        email=request.user.email,
+        location=profile.location,
+        phone=profile.phone,
+    )
+
+
 @require_http_methods(["GET", "POST"])
 def add_document(request, pk: int | None = None):
-    """Attach a file to an application, or drop one in the shared library."""
+    """Attach a file to an application, or drop one in the shared library.
+
+    A CV also goes to the AI layer, anonymised, when an extension provides
+    one (``cv_analyzer()``); the file itself never does.
+    """
     application = _application(request, pk) if pk else None
     form = DocumentForm()
     added = False
@@ -430,12 +514,22 @@ def add_document(request, pk: int | None = None):
         form = DocumentForm(request.POST, request.FILES)
         if form.is_valid():
             document = form.save(commit=False)
-            services.attach_document(
-                request.user,
-                application,
-                document,
-                label=form.cleaned_data.get("label") or document.file.name,
-            )
+            upload = form.cleaned_data["file"]
+            label = form.cleaned_data.get("label") or upload.name
+            if document.kind == DocumentKind.CV:
+                services.ingest_cv(
+                    request.user,
+                    application,
+                    document,
+                    upload=upload,
+                    label=label,
+                    known=_known_identity(request),
+                    analyzer=cv_analyzer(),
+                )
+            else:
+                services.attach_document(
+                    request.user, application, document, upload=upload, label=label
+                )
             if not application:
                 response = HttpResponse(status=204)
                 response.headers["HX-Redirect"] = reverse("tracker:document_library")
@@ -541,7 +635,7 @@ def set_gap_status(request, pk: int):
         return HttpResponseBadRequest("État inconnu.")
     response = render(request, "tracker/partials/gap_card.html", {"gap": gap,
                                                                   "max_gap": request.POST.get("max_gap", 10)})
-    return toast(response, f"{gap.name} : {gap.get_status_display().lower()}.")
+    return toast(response, f"{gap.name} : {str(GapStatus(gap.status).label).lower()}.")
 
 
 def stats_bar(request):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -18,7 +18,6 @@ def make_user(
     onboarded: bool = True,
     **profile_fields,
 ):
-    User = get_user_model()
     user = User.objects.create_user(
         username=username or unique_username(display_name), email=email, password=password
     )

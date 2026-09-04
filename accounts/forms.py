@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from django import forms
-from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import (
     AuthenticationForm,
     PasswordChangeForm,
     SetPasswordForm,
 )
+from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 
 from accounts.models import Preferences, Profile
 from accounts.services import complete_onboarding
+from rls import as_user
 
 INPUT = {"class": "input"}
 
@@ -35,11 +36,13 @@ def text_input(placeholder: str = "", autofocus: bool = False, **extra) -> forms
 def email_is_taken(email: str, exclude_pk=None) -> bool:
     """Case-insensitive, and against usernames too: accounts mode stores the
     e-mail as the username."""
-    User = get_user_model()
     queryset = User.objects.filter(Q(email__iexact=email) | Q(username__iexact=email))
     if exclude_pk is not None:
         queryset = queryset.exclude(pk=exclude_pk)
-    return queryset.exists()
+    # A question about every account, not the signed-in one: asked on behalf
+    # of nobody, which is how the user table answers for all its rows.
+    with as_user(None):
+        return queryset.exists()
 
 
 class OnboardingForm(forms.Form):
@@ -99,7 +102,6 @@ class LoginForm(AuthenticationForm):
         if "@" not in value:
             return value
         value = value.lower()
-        User = get_user_model()
         if User.objects.filter(username__iexact=value).exists():
             return value
         holders = list(User.objects.filter(email__iexact=value).values_list("username", flat=True)[:2])
@@ -142,7 +144,7 @@ class SignupForm(forms.Form):
             raise forms.ValidationError("Un compte existe déjà avec cet e-mail.")
         return email
 
-    def clean_password2(self) -> str:
+    def clean_password2(self) -> str | None:
         first = self.cleaned_data.get("password1")
         second = self.cleaned_data.get("password2")
         if first and second and first != second:
@@ -150,10 +152,10 @@ class SignupForm(forms.Form):
         return second
 
     def clean(self):
-        cleaned = super().clean()
+        super().clean()
+        cleaned = self.cleaned_data
         password = cleaned.get("password2")
         if password:
-            User = get_user_model()
             probe = User(username=cleaned.get("email", ""), email=cleaned.get("email", ""))
             try:
                 validate_password(password, probe)
@@ -162,12 +164,14 @@ class SignupForm(forms.Form):
         return cleaned
 
     def save(self):
-        User = get_user_model()
         email = self.cleaned_data["email"]
         user = User.objects.create_user(
             username=email, email=email, password=self.cleaned_data["password1"]
         )
-        complete_onboarding(user, display_name=self.cleaned_data["display_name"])
+        # The account exists but nobody is signed in as it yet: its profile
+        # is completed on its own behalf, the only rows the database accepts.
+        with as_user(user):
+            complete_onboarding(user, display_name=self.cleaned_data["display_name"])
         return user
 
 
@@ -182,11 +186,12 @@ class ProfileForm(forms.ModelForm):
 
     class Meta:
         model = Profile
-        fields = ["display_name", "headline", "location"]
+        fields = ["display_name", "headline", "location", "phone"]
         widgets = {
             "display_name": text_input("Lionel", autocomplete="name"),
             "headline": text_input("Ingénieur DevOps senior"),
             "location": text_input("Nivelles", autocomplete="address-level2"),
+            "phone": text_input("+32 470 12 34 56", autocomplete="tel"),
         }
 
     def __init__(self, *args, **kwargs):

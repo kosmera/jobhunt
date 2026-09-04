@@ -164,6 +164,11 @@ class DjangoDocuments:
     def count(self, owner) -> int:
         return Document.objects.for_user(owner).count()
 
+    def owns_file(self, owner, file_name: str) -> bool:
+        if not file_name:
+            return False
+        return Document.objects.for_user(owner).filter(file=file_name).exists()
+
 
 class DjangoContacts:
     def get(self, owner, pk: int) -> Contact:
@@ -209,3 +214,7 @@ class DjangoPersistence:
 
     def atomic(self):
         return transaction.atomic()
+
+    def on_commit(self, callback):
+        # Outside a transaction Django runs the callback on the spot.
+        transaction.on_commit(callback)

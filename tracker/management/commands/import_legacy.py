@@ -32,6 +32,7 @@ from tracker.models import (
     Status,
     WorkMode,
 )
+from rls import as_user
 
 SECTOR_MAP = {
     "privé": Sector.PRIVATE,
@@ -80,7 +81,7 @@ def squash(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", fold(value))
 
 
-def fold(value: str) -> str:
+def fold(value: object) -> str:
     """Lower-case and strip accents, for tolerant lookups."""
     text = unicodedata.normalize("NFKD", str(value or "").strip().lower())
     return "".join(c for c in text if not unicodedata.combining(c))
@@ -236,7 +237,9 @@ class Command(BaseCommand):
             "platforms": 0, "gaps": 0, "documents": 0,
         }
 
-        with transaction.atomic():
+        # On the owner's behalf: run with the runtime role, the database only
+        # accepts rows for the account the transaction is bound to.
+        with as_user(self.owner), transaction.atomic():
             platforms = self.import_platforms(workbook)
             self.import_applications(workbook, platforms)
             self.import_discarded(workbook)
@@ -596,6 +599,9 @@ class Command(BaseCommand):
                 language=guess_language(path.name),
                 is_primary=is_primary,
                 source_path=source,
+                # Known here for free; a remote provider would charge a
+                # round-trip per row rendered otherwise.
+                size_bytes=path.stat().st_size,
             )
             document.file.save(path.name, File(handle), save=False)
             document.save()

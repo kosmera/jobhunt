@@ -153,6 +153,8 @@ jamais servis depuis `media/` par leur chemin : chaque téléchargement passe
 par une vue qui vérifie le propriétaire — ne pas exposer `media/` avec le
 serveur web. Il n'y a pas de réinitialisation de mot de passe par e-mail :
 `changepassword` en tient lieu.
+Sur PostgreSQL, le serveur se connecte avec le rôle applicatif et les
+migrations avec le propriétaire : voir [Isolation des données](#isolation-des-données-rls).
 
 ## Base de données
 
@@ -209,29 +211,347 @@ officielle) :
 docker run -d --name jobhunt-pg -e POSTGRES_USER=jobhunt -e POSTGRES_PASSWORD=jobhunt \
   -e POSTGRES_DB=jobhunt -p 127.0.0.1:55432:5432 postgres:16-alpine
 JOBHUNT_DATABASE_URL=postgres://jobhunt:jobhunt@127.0.0.1:55432/jobhunt JOBHUNT_DEBUG=0 \
-  uv run --no-sync manage.py test accounts tracker jobhunt
+  uv run --no-sync manage.py test accounts tracker jobhunt rls
 ```
+
+## Stockage des fichiers
+
+Les CV et les annonces téléversés sont des données sensibles ; où ils vivent
+est une configuration, comme le moteur de base : `JOBHUNT_STORAGE_PROVIDER`.
+
+| Fournisseur | Où vont les octets | Comment on les récupère |
+| --- | --- | --- |
+| `local` (défaut) | `media/` dans le dossier du projet — un dossier privé, **jamais** servi par son chemin | Une vue de l'application (`/documents/<id>/telecharger/`) qui vérifie le propriétaire et diffuse le fichier ; un lien signé (`/fichiers/<jeton>/`) pour tout ce qui a besoin d'une adresse |
+| `azure` | Un conteneur Azure Blob Storage (`JOBHUNT_AZURE_STORAGE_CONTAINER`, `documents` par défaut) | La même vue, qui redirige vers une URL SAS en lecture seule, valable `JOBHUNT_STORAGE_LINK_TTL` secondes (300) |
+| `memory` | La mémoire du processus — perdus à l'arrêt (tests, démonstrations) | Comme `local` |
+
+Trois façons de s'authentifier auprès d'Azure, de la plus recommandée à la
+plus pratique : l'URL du compte seule (`JOBHUNT_AZURE_STORAGE_ACCOUNT_URL`),
+et c'est l'identité managée du service qui signe — il lui faut les rôles
+*Storage Blob Data Contributor* et *Storage Blob Delegator* sur le compte
+(et `AZURE_CLIENT_ID` pour une identité affectée par l'utilisateur) ;
+l'URL du compte plus une clé (`JOBHUNT_AZURE_STORAGE_ACCOUNT_KEY`, via une
+référence Key Vault sur App Service) ; ou la chaîne de connexion
+(`JOBHUNT_AZURE_STORAGE_CONNECTION_STRING`, pratique en développement et avec
+Azurite). Le pilote s'installe avec `uv sync --extra azure` (ou, sans toucher
+au `.venv`, `uv pip install azure-storage-blob azure-identity`).
+
+```bash
+uv run manage.py storage_status            # fournisseur, conteneur, signature, lien d'essai
+uv run manage.py storage_status --probe    # écrit puis supprime un fichier (droits d'écriture)
+uv run manage.py storage_prune             # liste les fichiers qu'aucun document ne référence
+uv run manage.py storage_prune --delete    # …et les supprime
+```
+
+Les octets sont écrits avant la ligne, pour qu'une ligne ne désigne jamais
+un fichier absent. Le prix, c'est l'autre sens : une requête qui échoue
+après l'écriture laisse le fichier. `storage_prune` ramasse ce que plus
+aucune ligne ne désigne, en épargnant les dépôts de moins de 24 heures
+(`--older-than`) — un téléversement en cours a ses octets écrits et sa
+ligne pas encore. Il lit les documents de tous les profils : sur
+PostgreSQL, il se lance avec le rôle propriétaire, comme `dumpdata` et les
+sauvegardes.
+
+Pour exercer le vrai SDK sans compte Azure, l'émulateur officiel suffit ; la
+suite ajoute alors cinq tests d'intégration (sinon ils sont sautés) :
+
+```bash
+docker run -d --name jobhunt-azurite -p 127.0.0.1:10000:10000 \
+  mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0
+JOBHUNT_STORAGE_PROVIDER=azure JOBHUNT_AZURE_STORAGE_CONNECTION_STRING=UseDevelopmentStorage=true \
+  uv run manage.py storage_status --probe
+uv run manage.py test tracker    # AzuriteTests s'exécutent
+```
+
+`manage.py check` reste hors ligne : il signale un pilote manquant
+(`tracker.E002`, `tracker.E003`) ou le stockage en mémoire (`tracker.W002`),
+sans toucher au réseau. C'est `storage_status` qui parle au fournisseur.
+
+### Un port, trois adaptateurs
+
+Le cœur ne connaît qu'un port, `StoragePort` (`tracker/ports.py`) :
+`save_file`, `open_file`, `delete_file`, `file_exists`, `get_secure_url` et
+`extract_and_anonymize_text`. Chaque adaptateur est aussi le *storage* Django
+que `STORAGES["default"]` désigne : `Document.file`, la suppression en
+cascade, `import_legacy` et les extensions passent par le même objet sans le
+savoir, et aucune migration n'a été nécessaire — sauf la colonne
+`size_bytes`, qui évite un aller-retour réseau par ligne affichée quand les
+fichiers sont chez Azure.
+
+Un lien de `get_secure_url` vaut cinq minutes (`JOBHUNT_STORAGE_LINK_TTL`,
+une heure au plus — une URL SAS ne se révoque pas avant son expiration). Sur
+Azure c'est un vrai *jeton au porteur* : quiconque la détient lit ce blob
+jusqu'à `se`. En local, le lien est signé, lié au compte inscrit dans le
+chemin du fichier, **et vérifié contre les lignes** : la vue redemande à la
+persistance si le compte connecté possède bien un document portant ce
+fichier. Un lien forgé, emprunté ou périmé se lit donc comme un mauvais
+identifiant — 404. `document.file.url` renvoie ce lien, jamais un chemin
+`media/`.
+
+Un lien de téléchargement se pose en `<a href>` ordinaire, jamais en
+`hx-get` ni sous `hx-boost` : sur Azure la vue répond une redirection vers
+`blob.core.windows.net`, qu'un `fetch` HTMX ne peut pas suivre (CORS).
+
+Un incident de stockage ne casse pas une page : chaque adaptateur traduit
+les erreurs de son fournisseur en `StorageError` (une `OSError`), la taille
+des documents est gardée sur la ligne (`size_bytes`) plutôt que redemandée à
+chaque affichage, et le client Azure est réglé pour abandonner en quelques
+secondes — les valeurs d'origine du SDK font attendre une minute.
+
+### Un CV vers l'IA, anonymisé
+
+Le cas d'usage `services.ingest_cv` fait tout passer par le port : il
+enregistre les octets, relit le texte (PDF, DOCX, TXT, MD) et l'anonymise
+(`tracker/privacy.py` : e-mails, téléphones, liens, IBAN, numéro national,
+date et lieu de naissance, âge, adresse, et ce que le profil sait de son
+propriétaire — nom, identifiant, e-mail, point de départ, téléphone —
+remplacés par `[EMAIL]`, `[TELEPHONE]`, `[NOM]`…), puis remet ce texte, et
+seulement lui,
+à la couche IA. Celle-ci est un second port, `CVAnalyzer` : une extension le
+fournit par l'attribut `cv_analyzer` de son descripteur (chemin pointé d'une
+classe sans argument), `settings.CV_ANALYZER` sert aux tests, et sans
+personne le CV est simplement rangé. L'analyseur est appelé dans la requête :
+il doit rendre la main tout de suite et lancer son travail depuis
+`rls.on_commit`. Un CV illisible — format inconnu, scan sans couche texte,
+moins de 200 caractères extraits — est conservé et non analysé : le cœur n'a
+aucun repli qui enverrait le fichier lui-même.
+
+Ce qui traverse le port est anonymisé, le libellé compris : il reprend par
+défaut le nom du fichier téléversé, qui porte le nom du candidat bien plus
+souvent que le corps du CV. Le libellé rangé en base, lui, reste tel quel —
+c'est celui que son propriétaire relit dans sa bibliothèque. Et si
+l'analyse échoue, quelle qu'en soit la raison, le document reste rangé :
+un téléversement ne se perd pas parce que la couche IA a trébuché.
+
+L'anonymisation est une heuristique, pas un modèle : elle masque ce qu'elle
+reconnaît, et le reste du CV arrive intact. Elle ne cherche ni la
+nationalité, ni la situation familiale, ni le permis de conduire ; une année
+seule en début de ligne suivie d'une ville (`2018 Liège, Belgique`) est
+ambiguë et masquée par prudence, tout comme un code postal qui suit
+immédiatement une rue. Rien de ce qu'elle masque n'est récupérable côté IA :
+ce qu'une extension doit réafficher — nom, e-mail, point de départ,
+téléphone — vient du profil du compte, pas du CV. Le téléphone y est
+facultatif : laissé vide, il ne figure nulle part. Les liens, eux, ne sont
+inscrits nulle part ailleurs que dans le CV : ils sont donc perdus pour l'IA.
+
+## Isolation des données (RLS)
+
+Chaque page ne montre que les lignes du profil connecté : c'est la première
+couche, celle du code (`Model.objects.for_user(user)`, les ports qui prennent
+un `owner`). Sur PostgreSQL, une seconde couche fait respecter la même
+frontière par la base elle-même, avec la *row-level security* native : chaque
+table qui porte les données d'un compte (candidatures, sociétés, documents,
+profil, préférences, événements, contacts, la table des comptes) reçoit une
+politique `tenant_isolation`, et le serveur web se connecte avec un rôle
+soumis à ces politiques. Une requête que le code aurait oublié de filtrer ne
+ramène rien ; une écriture pour un autre compte est refusée
+(`ProgrammingError`, « new row violates row-level security policy »). Sur
+SQLite, rien de tout cela n'existe : la première couche reste seule, comme
+avant.
+
+### Deux rôles
+
+| Rôle | Fait quoi | Connexion |
+| --- | --- | --- |
+| propriétaire (sur Azure : l'administrateur du serveur) | `manage.py migrate`, `rls_status`, `rls_grant`, les commandes d'import | `JOBHUNT_DATABASE_URL` au moment de migrer |
+| `jobhunt_app` (`JOBHUNT_DB_APP_ROLE`) | sert l'application | `JOBHUNT_DATABASE_URL` du serveur web |
+
+La migration `rls.0001` crée le rôle applicatif s'il manque (sans mot de
+passe, `NOLOGIN`), lui donne `SELECT/INSERT/UPDATE/DELETE` sur toutes les
+tables, pose les *default privileges* pour celles que les migrations
+suivantes créeront, et pose les politiques. Reste à l'ops, une fois :
+
+```bash
+# avec les identifiants du propriétaire
+psql "$OWNER_URL" -c "ALTER ROLE jobhunt_app LOGIN PASSWORD '…';"   # ou une identité Entra ID
+uv run manage.py rls_status --probe                                  # tout doit être « ok »
+```
+
+Le serveur web reçoit alors `JOBHUNT_DATABASE_URL=postgres://jobhunt_app:…@…/jobhunt?sslmode=require`.
+Un propriétaire ignore par nature les politiques de ses tables (pas de `FORCE
+ROW LEVEL SECURITY`, exprès : les migrations de données doivent tout voir) ;
+c'est pourquoi le serveur ne doit jamais tourner avec lui. La première
+requête PostgreSQL d'un processus le vérifie : rôle ni superutilisateur, ni
+`BYPASSRLS`, ni propriétaire d'une table protégée, et politique en place sur
+chaque table enregistrée. Avec `JOBHUNT_RLS_ENFORCE=1` (défaut en mode
+comptes hors `DEBUG`) la requête échoue sinon ; sans, un avertissement est
+journalisé une fois. `manage.py check --database default` fait le même examen
+(`rls.E004` avec le rôle applicatif, `rls.W002` avec le propriétaire) — y
+compris toute table lisible par le rôle applicatif qui n'a pas de politique,
+celles d'une extension comprises —, et
+`manage.py rls_status` l'affiche table par table (`--probe` : passe au rôle
+applicatif et compte ce qu'une session sans compte voit — zéro partout, sauf
+`auth_user`).
+
+Si une migration est un jour appliquée par un autre rôle que celui qui a posé
+les *default privileges*, les tables neuves ne sont pas données au rôle
+applicatif : `rls_status` le signale, `manage.py rls_grant` (avec le
+propriétaire) répare. Le `SET ROLE jobhunt_app` que `--probe` et la suite de
+tests utilisent n'est accordé au propriétaire que s'il administre ce rôle
+(il l'a créé, ou il est superutilisateur) ; sinon la migration l'indique par
+un avertissement et tout le reste vaut quand même.
+
+### Comment la base sait pour qui elle travaille
+
+Chaque transaction annonce le compte au serveur —
+`set_config('app.current_user_id', '<id>', true)` — jamais la session : le
+réglage meurt au `COMMIT`/`ROLLBACK`, donc une connexion réutilisée par la
+requête suivante (connexions persistantes, pool psycopg, PgBouncer d'Azure en
+mode transaction) ne peut pas garder le compte précédent. Trois endroits
+l'annoncent :
+
+- le middleware `rls.middleware.RowLevelSecurityMiddleware`, juste après
+  l'authentification : toute la requête (les middlewares suivants, la vue,
+  le rendu) tourne dans une transaction liée au compte connecté, ou à
+  personne pour un visiteur anonyme ; une réponse 5xx annule la transaction ;
+  une connexion en cours de requête (`auth.login`, l'entrée automatique du
+  mode local) relie le reste de la requête au nouveau compte ;
+- le moteur `rls.backends.postgresql` (celui que `JOBHUNT_DATABASE_URL`
+  configure), pour toute transaction ouverte ailleurs pendant qu'un compte
+  est lié ;
+- `rls.as_user(user)` pour tout ce qui n'est pas une requête : commandes
+  (`import_legacy` l'utilise), tâches de fond, tests, extensions.
+  `as_user(None)` pose une question « pour personne » : c'est ainsi que la
+  table des comptes, seule à rester lisible sans compte lié (il faut bien
+  trouver le compte pour le connecter), répond à l'unicité d'un e-mail ou
+  au compteur de profils du mode local.
+
+Une requête SQL hors transaction n'est liée à personne et ne voit rien ; une
+`IntegrityError`/`DatabaseError` attrapée sans `atomic()` imbriqué laisse la
+transaction de la requête en erreur. Les deux se voient tout de suite en
+développement sur PostgreSQL. Trois conséquences pour tout ce qui n'est pas
+une requête :
+
+- **un thread ne hérite pas du contexte** (Python démarre un thread avec un
+  contexte vide) : une tâche de fond se lance depuis `rls.on_commit(...)` —
+  la ligne qu'elle doit lire n'est visible qu'une fois la requête validée —
+  et entre elle-même dans `with rls.as_user(owner_id):`, une transaction par
+  phase plutôt qu'une seule autour d'un long appel réseau ; un
+  `transaction.on_commit` brut tourne sans compte ;
+- **une commande lancée avec les identifiants du serveur web ne voit rien**
+  hors `as_user` : `dumpdata` produit un fichier vide et valide, `shell`
+  compte zéro ligne. Sauvegardes (`pg_dump`), restaurations, `loaddata`,
+  `flush` se font avec le propriétaire ; après une restauration,
+  `rls_grant` puis `rls_status --probe` avant de relancer le serveur (un
+  `pg_restore --no-owner` fait par le rôle applicatif le rendrait
+  propriétaire, donc exempt des politiques) ;
+- **l'admin Django devient mono-compte** : connecté par le rôle applicatif,
+  un superutilisateur n'y voit que ses propres lignes et ne peut en créer
+  pour personne d'autre. L'assistance inter-comptes se fait dans
+  `manage.py shell` avec le propriétaire, à l'intérieur de
+  `rls.as_user(user)`.
+
+### Un propriétaire de groupe
+
+Le propriétaire des tables est le rôle qui a lancé la première migration.
+Sur Azure, l'administrateur du serveur, une identité Entra ID `isAdmin` ou
+une identité d'intégration continue sont des rôles distincts : le second à
+migrer se heurte à « must be owner of table ». Le remède est un rôle de
+groupe sans mot de passe qui possède tout, dont chaque administrateur est
+membre, et que les migrations endossent :
+
+```bash
+psql "$ADMIN_URL" -c "CREATE ROLE jobhunt_owner NOLOGIN;" -c "GRANT jobhunt_owner TO <admin>;"
+psql "$ADMIN_URL" -c "REASSIGN OWNED BY <admin> TO jobhunt_owner;"        # base existante
+JOBHUNT_DATABASE_URL="postgres://<admin>:…@…/jobhunt?sslmode=require&assume_role=jobhunt_owner" \
+  uv run manage.py migrate && uv run manage.py rls_grant
+```
+
+`assume_role` est l'option de Django qui fait `SET ROLE` à la connexion (sur
+le port 5432, jamais à travers PgBouncer) : tout objet créé appartient au
+groupe et les *default privileges* valent quel que soit l'administrateur.
+`rls_status` signale des tables à propriétaires différents. Même schéma pour
+une identité Entra ID côté serveur web : `jobhunt_app` reste un rôle de
+privilèges sans mot de passe, l'identité (créée `isAdmin=false`) le reçoit
+par `GRANT jobhunt_app TO "<identité>"` et se connecte elle-même — un jeton
+Entra expire, donc pas dans `JOBHUNT_DATABASE_URL` en dur : un fichier
+d'environnement rafraîchi par un sidecar, et `JOBHUNT_DB_CONN_MAX_AGE`
+court.
+
+### Sur Azure, en production
+
+- **PgBouncer** (port 6432, mode transaction) convient : le compte est
+  annoncé par transaction, jamais par session. Mais chaque requête tient
+  une connexion serveur du début à la fin : dimensionne
+  `default_pool_size` ≥ workers × instances, et ne fais jamais de session
+  psql ad hoc avec les identifiants du rôle applicatif à travers PgBouncer
+  (un `SET` de session y contaminerait la connexion suivante ; le serveur
+  annonce « personne » à chaque transaction anonyme justement pour ça, et
+  refuse de démarrer si la connexion arrive avec une valeur déjà posée).
+- **Délais** : `idle_in_transaction_session_timeout` et `statement_timeout`
+  posés sur `jobhunt_app` (`ALTER ROLE jobhunt_app SET …`), plus longs que la
+  requête légitime la plus lente ; pas de `JOBHUNT_AI_EAGER=1` en
+  production (un appel LLM tiendrait la transaction ouverte).
+- **Migrations** : `ENABLE ROW LEVEL SECURITY` et `CREATE POLICY` prennent
+  un verrou exclusif sur la table et attendent les requêtes en cours ;
+  lance-les hors pointe avec `?options=-c%20lock_timeout%3D5s` et une
+  reprise en cas d'échec.
+- **Recherche** : `icontains`/`istartswith` ne sont pas *leakproof*, un
+  index texte sur une table protégée serait ignoré ; l'égalité, `IN` et les
+  intervalles de dates gardent leurs index.
+
+### Ce que ça change dans le code
+
+- Les *slugs* sont uniques par compte, plus globalement : le rôle applicatif
+  ne voit que ses lignes, une vérification globale serait mensongère. Le
+  chemin des fichiers porte l'identifiant du compte.
+- Un modèle qui référence le compte s'enregistre dans le `ready()` de son
+  app (`rls.register("app.Model", owner="user")`, ou `via="application"`
+  pour un satellite) et pose sa politique dans une migration
+  (`rls.operations.EnableRowLevelSecurity`). Le contrôle `rls.W001` signale
+  tout modèle oublié — les extensions comprises : une extension qui
+  n'enregistre pas ses tables garde la seule première couche.
+- Jamais de fonction `SECURITY DEFINER` ni de vue sans `security_invoker`
+  sur une table protégée : elles contournent les politiques.
+- Une connexion (`auth.login`) se fait au niveau de la requête, jamais à
+  l'intérieur d'un `as_user` imbriqué : `rebind` le refuse, sinon le compte
+  serait perdu à la sortie du bloc.
+- La table des comptes : lisible et modifiable par une session sans compte
+  (connexion, inscription, mise à niveau d'un ancien hachage), mais jamais
+  supprimable ainsi ; une session liée n'y voit que sa ligne.
+- Conséquence de la ligne précédente : se connecter à un *autre* compte sans
+  s'être déconnecté (page de connexion de l'admin) échoue, la session liée ne
+  voyant pas la ligne visée. Les vues de l'application redirigent avant.
+- Les politiques portent sur le propriétaire de la ligne, pas sur ses clés
+  étrangères : un bug de la première couche pourrait rattacher un document du
+  compte A à une candidature du compte B (B ne le verrait pas pour autant) ;
+  le modèle le refuse (`Document.save`, `Application.save`), la base ne le
+  vérifie pas.
+
+### Dans la suite de tests
+
+Sur PostgreSQL, chaque requête du client de test est faite avec le rôle
+applicatif (`rls.testing`, installé par `TEST_RUNNER`) : les tests de pages
+existants exercent les politiques sans rien changer, les fixtures restent
+posées par le superutilisateur. Les tests propres aux politiques
+(`rls/tests.py`) sont sautés sur SQLite.
 
 ## Tests
 
 ```bash
-uv run manage.py test accounts tracker jobhunt
-uv run pyflakes jobhunt accounts tracker
+uv run manage.py test accounts tracker jobhunt rls
+uv run pyflakes jobhunt accounts tracker rls
+pyright   # installé à part (uv tool install pyright) ; lit [tool.pyright] de pyproject.toml
 ```
+
+Sous Claude Code, `.claude/settings.json` branche un hook (`.claude/hooks/check-python.sh`)
+qui relance `pyright` et `pyflakes` sur tout le projet après chaque fichier Python
+modifié par l'assistant : une erreur lui revient dans la foulée au lieu d'attendre
+la prochaine relecture.
 
 Rendu de chaque page (y compris base vide), transitions de statut, tous les
 points d'entrée HTMX, filtres, formulaires, l'import réel du classeur, les deux
 modes d'entrée, l'isolation entre profils sur chaque URL, la migration de
 rattachement rejouée sur une base d'avant les comptes, et (`jobhunt`) la
 lecture de `JOBHUNT_DATABASE_URL`. Avec `JOBHUNT_DEBUG=0`, la suite tourne en
-mode comptes sur SQLite : les avertissements `accounts.W001` et `tracker.W001`
-s'affichent au démarrage, c'est attendu.
+mode comptes sur SQLite : les avertissements `accounts.W001`, `accounts.W002`
+et `tracker.W001` s'affichent au démarrage, c'est attendu.
 
 ## Dépendances
 
 | Fichier | Rôle |
 | --- | --- |
-| `pyproject.toml` | Les dépendances déclarées : Django et openpyxl, plus pyflakes et django-stubs dans le groupe `dev`, et `psycopg` dans l'extra `postgres` (un déploiement PostgreSQL fait `uv sync --extra postgres`, à chaque `sync`). |
+| `pyproject.toml` | Les dépendances déclarées : Django, openpyxl, pypdf et python-docx (texte des CV), plus pyflakes, django-stubs et requests (tests d'intégration Azurite) dans le groupe `dev`, `psycopg` dans l'extra `postgres` et `azure-storage-blob` + `azure-identity` dans l'extra `azure` (un déploiement fait `uv sync --extra postgres --extra azure`, à chaque `sync`). |
 | `uv.lock` | Les versions exactes, **à committer** : c'est ce qui rend l'environnement reproductible. |
 | `.python-version` | Python 3.12 ; `uv` le télécharge tout seul s'il manque. |
 
@@ -271,7 +591,14 @@ reçoit la requête et compte pour le profil connecté) et panneaux injectés da
 la fiche candidature. Le cœur n'en liste aucune en dur — installer le paquet
 active l'extension, le désinstaller retire tout. Une extension range ses
 propres données par profil comme le cœur : un champ `owner`, et
-`accounts.services.owned_or_404` pour retrouver une ligne.
+`accounts.services.owned_or_404` pour retrouver une ligne. Pour lire un
+fichier téléversé, elle passe par le port de stockage
+(`tracker.adapters.storage().open_file(document.file.name)`, ou
+`extract_and_anonymize_text`) : `document.file.path` n'existe que sur le
+disque, pas chez Azure, et un `document.file.save(...)` se fait hors
+transaction — un envoi réseau ne se tient pas au milieu d'une transaction
+PostgreSQL. Pour recevoir le texte anonymisé d'un CV téléversé, l'extension
+déclare `cv_analyzer` sur son descripteur (voir « Stockage des fichiers »).
 
 C'est le mécanisme qu'utilise le copilote IA (extension propriétaire,
 développée hors de ce dépôt) :
@@ -299,7 +626,9 @@ connaissent que des *ports* (des interfaces), et la base de données n'est qu'un
 | Ports | `tracker/ports.py` | Ce que les cas d'usage demandent à la persistance : `Persistence`, un dépôt par entité, `NotFound`. Il n'y passe jamais un queryset, seulement des instances, des listes, des entiers. |
 | Adaptateurs | `tracker/adapters/django_orm.py` | L'ORM Django — SQLite comme PostgreSQL. |
 | | `tracker/adapters/memory.py` | Des dictionnaires : pour tester sans base, et pour prouver que la frontière tient. |
-| Cas d'usage | `tracker/services.py` | Changer un statut, noter une relance, rattacher un document… Chaque fonction reçoit la persistance et les seuils dont elle a besoin. |
+| | `tracker/adapters/file_storage.py`, `tracker/adapters/azure_storage.py` | Les fichiers : le disque (`media/`), la mémoire, Azure Blob Storage — voir [Stockage des fichiers](#stockage-des-fichiers). |
+| Confidentialité | `tracker/privacy.py` | L'anonymisation du texte d'un CV avant qu'il ne parte vers l'IA : règles pures sur des chaînes. |
+| Cas d'usage | `tracker/services.py` | Changer un statut, noter une relance, rattacher un document, ingérer un CV… Chaque fonction reçoit la persistance, le stockage et les seuils dont elle a besoin. |
 | Adaptateur web | `tracker/views.py`, `tracker/queries.py` | Les vues traduisent la requête HTTP et rendent ; `queries.py` porte les lectures de pages (filtres, tableau de bord, analyse) directement en ORM. |
 
 Les modèles restent les entités — les gabarits reçoivent toujours des instances
@@ -364,6 +693,28 @@ class RelanceTests(SimpleTestCase):
 Les seuils (`follow_up_days`, `stale_days`) sont toujours fournis par
 l'appelant : ni les adaptateurs ni les cas d'usage ne lisent les préférences du
 profil — c'est la vue qui les prend dans `request.preferences`.
+
+Un cas d'usage qui touche à un fichier prend le stockage de la même façon —
+`storage=MemoryStorageAdapter()` — et reçoit le contenu explicitement,
+`upload=SimpleUploadedFile(...)`. Sans ça, le test écrirait dans le `media/`
+configuré :
+
+```python
+from django.core.files.uploadedfile import SimpleUploadedFile
+
+from tracker.adapters.file_storage import MemoryStorageAdapter
+
+store, files = MemoryPersistence(), MemoryStorageAdapter()
+intake = services.ingest_cv(
+    user, None, Document(kind=DocumentKind.CV), upload=SimpleUploadedFile("cv.txt", texte),
+    label="Mon CV", known=privacy.known_identity(display_name="Lionel Dupont"),
+    analyzer=None, persistence=store, storage=files,
+)
+```
+
+La suite complète tourne de toute façon avec un `MEDIA_ROOT` temporaire
+(`rls.testing.TestRunner`) : un test distrait ne salit pas le dossier du
+projet.
 
 ### Utiliser les ports depuis une extension
 

@@ -12,11 +12,16 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from accounts.models import Preferences, Profile
+from rls import as_user
 
 
 @receiver(post_save, sender=get_user_model(), dispatch_uid="accounts.create_profile_rows")
 def create_profile_rows(sender, instance, created, raw=False, **kwargs):
     if raw or not created:
         return
-    Profile.objects.get_or_create(user=instance)
-    Preferences.objects.get_or_create(user=instance)
+    # A user is created before anyone is signed in as it (signup, onboarding,
+    # createsuperuser): the rows are written on the new account's behalf, or
+    # the database would refuse them.
+    with as_user(instance):
+        Profile.objects.get_or_create(user=instance)
+        Preferences.objects.get_or_create(user=instance)

@@ -7,19 +7,35 @@ preferences, never this module), an optional ``today`` and the
 rules themselves live in ``tracker.domain``; this module sequences them
 with the ports and draws the transaction boundaries.
 
-Nothing here knows about requests, templates or the ORM, so every use case
-runs unchanged on ``MemoryPersistence`` in a database-free test.
+Files go through the storage port the same way (``storage``, the configured
+adapter by default): a use case is the only writer of a document's bytes,
+and the AI layer receives the anonymised text the port produces — never a
+file, never a path.
+
+Nothing here knows about requests, templates, the ORM or a cloud SDK, so
+every use case runs unchanged on ``MemoryPersistence`` and
+``MemoryStorageAdapter`` in a database-free test.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import logging
+from collections.abc import Mapping
+from contextlib import suppress
+from dataclasses import dataclass
+from pathlib import PurePosixPath
 
+from django.core.files.base import File
 from django.utils import timezone
 
 from tracker import domain
 from tracker.adapters import persistence as configured_persistence
+from tracker.adapters import storage as configured_storage
+from tracker import privacy
+from tracker.adapters.document_text import UnsupportedFormat
 from tracker.models import (
+    DOCUMENT_NAME_MAX_LENGTH,
     IN_FLIGHT_STATUSES,
     INTERVIEWING_STATUSES,
     OPEN_STATUSES,
@@ -33,12 +49,21 @@ from tracker.models import (
     GapStatus,
     SkillGap,
     Status,
+    document_upload_to,
 )
-from tracker.ports import Persistence
+from tracker.ports import CVAnalyzer, Persistence, StoragePort
+from tracker.privacy import AnonymizedText
+
+
+logger = logging.getLogger(__name__)
 
 
 def _store(persistence: Persistence | None) -> Persistence:
     return configured_persistence() if persistence is None else persistence
+
+
+def _files(storage: StoragePort | None) -> StoragePort:
+    return configured_storage() if storage is None else storage
 
 
 def _today(today: dt.date | None) -> dt.date:
@@ -162,32 +187,158 @@ def attach_document(
     document: Document,
     *,
     label: str,
+    upload: File | None = None,
     persistence: Persistence | None = None,
+    storage: StoragePort | None = None,
 ) -> Document:
     """File a document under an application, or in the library (``None``).
 
-    A new primary document of a kind demotes the previous one; an attached
-    document leaves a trace on the timeline.
+    ``upload`` is the file's content: it is stored through the storage port
+    under the name the model's layout dictates, *before* the row is written,
+    and removed again if writing the row fails. Without ``upload`` the
+    document's file is taken as already stored (an extension that saved it
+    itself). A new primary document of a kind demotes the previous one; an
+    attached document leaves a trace on the timeline.
     """
     store = _store(persistence)
+    files = _files(storage)
     document.owner = owner
     document.application = application
     document.label = label
-    with store.atomic():
-        if document.is_primary and application is not None:
-            store.documents.demote_primary(application, document.kind)
-        store.documents.add(document)
-        if application is not None:
-            store.events.add(application, EventKind.NOTE, f"Document ajouté : {document.label}")
+    stored_name: str | None = None
+    if upload is not None:
+        wanted = document_upload_to(document, PurePosixPath(upload.name or "document").name)
+        # Read before the write: once the field holds a name it is a stored
+        # file, and asking its size again would be a round-trip.
+        size = upload.size
+        stored_name = files.save_file(wanted, upload, max_length=DOCUMENT_NAME_MAX_LENGTH)
+        # A name assigned to the field is a file already in storage: the ORM
+        # adapter's save writes nothing more.
+        document.file = stored_name
+        document.size_bytes = size
+    try:
+        with store.atomic():
+            if document.is_primary and application is not None:
+                store.documents.demote_primary(application, document.kind)
+            store.documents.add(document)
+            if application is not None:
+                store.events.add(application, EventKind.NOTE, f"Document ajouté : {document.label}")
+    except BaseException:
+        if stored_name is not None:
+            _forget_file(files, stored_name)
+        raise
     return document
 
 
-def delete_document(owner, pk: int, *, persistence: Persistence | None = None) -> Document:
-    """Remove a document; returns the removed instance (its ``application``,
-    ``None`` for a library document, and ``label`` feed the response)."""
+def _forget_file(files: StoragePort, file_name: str) -> None:
+    """Best effort: the row is gone (or never written), a storage outage must
+    not turn that into an error the caller sees."""
+    with suppress(OSError):
+        files.delete_file(file_name)
+
+
+#: Below this many characters of extracted text, a document is not a CV the
+#: model could read: a scan without a text layer, or a heavily laid-out PDF.
+#: It is stored and left unanalysed — the core never sends the file itself.
+MIN_TEXT_LENGTH = 200
+
+
+@dataclass(frozen=True)
+class CVIntake:
+    """What ``ingest_cv`` did: the stored document, the anonymised text (``None``
+    when the format cannot be read, or when nobody analyses CVs) and whether
+    the AI layer received it."""
+
+    document: Document
+    anonymized: AnonymizedText | None
+    analyzed: bool
+
+
+def ingest_cv(
+    owner,
+    application: Application | None,
+    document: Document,
+    *,
+    upload: File,
+    label: str,
+    known: Mapping[str, str] | None = None,
+    analyzer: CVAnalyzer | None,
+    persistence: Persistence | None = None,
+    storage: StoragePort | None = None,
+) -> CVIntake:
+    """Store an uploaded CV, file it, and hand its *anonymised* text to the AI layer.
+
+    Everything about the file goes through the storage port: the bytes are
+    written by ``attach_document``, the text is read back and anonymised by
+    ``extract_and_anonymize_text`` (``known``: what the profile can vouch
+    for — name, e-mail, home town — see ``tracker.privacy.known_identity``),
+    and ``analyzer`` gets that text — plus the document's id and its label,
+    anonymised the same way — never the file. A CV nobody can read (an unsupported format, a scan without a
+    text layer, less than ``MIN_TEXT_LENGTH`` characters) is stored all the
+    same and simply not analysed: there is no fallback that sends the file.
+    An analyser that fails, or a provider that blinks while the text is read
+    back, is logged and leaves the document filed — an upload is never lost
+    because the analysis was not possible.
+    """
+    files = _files(storage)
+    document = attach_document(
+        owner, application, document, label=label, upload=upload,
+        persistence=persistence, storage=files,
+    )
+    if analyzer is None:
+        return CVIntake(document, None, False)
+    try:
+        anonymized = files.extract_and_anonymize_text(document.file.name or "", known=known)
+    except UnsupportedFormat:
+        return CVIntake(document, None, False)
+    except OSError:
+        # The provider blinked between the write and the read. The CV is
+        # stored, which is what the owner asked for; losing the request here
+        # would roll their upload back and strand the bytes.
+        logger.exception("Texte du document %s illisible ; analyse abandonnée.", document.pk)
+        return CVIntake(document, None, False)
+    if len(anonymized.text.strip()) < MIN_TEXT_LENGTH:
+        # Too little text to be a CV the model could read: a scan, or a
+        # layout the extractor could not follow. Stored, not analysed — the
+        # core has no fallback that would send the file itself.
+        return CVIntake(document, anonymized, False)
+    try:
+        analyzer.analyze_cv(
+            owner,
+            document_id=document.pk,
+        # The label defaults to the uploaded file name — « CV Lionel Dupont
+        # Nivelles.pdf » — which is the most name-bearing string in the whole
+        # flow. It crosses the port scrubbed like the text; the stored label
+        # stays as it is, for its owner's own eyes.
+            label=privacy.anonymize(document.label, known=known).text,
+            language=document.language,
+            text=anonymized,
+        )
+    except Exception:
+        # An extension is not the core's correctness: whatever it raises, the
+        # document stays filed and the page answers normally.
+        logger.exception("La couche IA a refusé le document %s.", document.pk)
+        return CVIntake(document, anonymized, False)
+    return CVIntake(document, anonymized, True)
+
+
+def delete_document(
+    owner, pk: int, *, persistence: Persistence | None = None, storage: StoragePort | None = None
+) -> Document:
+    """Remove a document and its file; returns the removed instance (its
+    ``application``, ``None`` for a library document, and ``label`` feed the
+    response). The file goes through the storage port, once the rows agree:
+    a rollback further up (on PostgreSQL the whole request is one
+    transaction) must not leave a document row without its bytes. The ORM
+    adapter's ``post_delete`` receiver defers to the same moment, so the two
+    are one idempotent deletion."""
     store = _store(persistence)
+    files = _files(storage)
     document = store.documents.get(owner, pk)
+    file_name = document.file.name or ""
     store.documents.remove(document)
+    if file_name:
+        store.on_commit(lambda: _forget_file(files, file_name))
     return document
 
 

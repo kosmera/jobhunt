@@ -9,5 +9,12 @@ class TrackerConfig(AppConfig):
     verbose_name = "Suivi de candidatures"
 
     def ready(self):
+        from rls import register
+
+        # Root rows by their owner; events and contacts through their application.
+        for label in ("Company", "Platform", "SkillGap", "Application", "Document"):
+            register(f"tracker.{label}", owner="owner")
+        register("tracker.ActivityEvent", via="application")
+        register("tracker.Contact", via="application")
         # Registers the configuration checks.
         import_module("tracker.checks")

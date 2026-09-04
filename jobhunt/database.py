@@ -30,7 +30,9 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from django.core.exceptions import ImproperlyConfigured
 
 SQLITE_ENGINE = "django.db.backends.sqlite3"
-POSTGRESQL_ENGINE = "django.db.backends.postgresql"
+# Django's PostgreSQL backend plus the row-level-security hook: every
+# outermost transaction announces the bound account (``rls.backends``).
+POSTGRESQL_ENGINE = "rls.backends.postgresql"
 
 # What today's settings hand to SQLite: writers do not wait on readers (WAL)
 # and a write transaction takes its lock up front instead of failing later.
@@ -183,6 +185,12 @@ def _postgresql_config(url: str, conn_max_age: int | None) -> dict:
         # any non-zero CONN_MAX_AGE (django/db/backends/postgresql/base.py).
         conn_max_age = 0
 
+    # A startup option pre-setting the account (``options=-c app.current_user_id=…``)
+    # would make every anonymous request act for it: refused outright.
+    if "app.current_user_id" in str(options.get("options", "")):
+        raise ImproperlyConfigured(
+            "JOBHUNT_DATABASE_URL : « options » ne doit pas fixer app.current_user_id."
+        )
     # Azure enforces TLS; a remote host without an explicit choice gets it.
     if not is_local_host(host):
         options.setdefault("sslmode", "require")

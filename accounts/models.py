@@ -4,7 +4,7 @@ The stock ``auth.User`` stays the account: swapping ``AUTH_USER_MODEL`` after
 ``auth``/``admin`` migrations have run breaks every existing database. What
 the user model does not carry lives in two one-to-one rows:
 
-- ``Profile`` — identity shown in the interface (name, home base). Its
+- ``Profile`` — identity shown in the interface (name, home base, phone). Its
   ``onboarded_at`` doubles as the "has been through onboarding" flag.
 - ``Preferences`` — the knobs that used to be environment variables (follow-up
   delay, staleness threshold) plus the search radius and default CV language.
@@ -51,6 +51,13 @@ class Profile(models.Model):
         max_length=200,
         blank=True,
         help_text="La ville d'où se comptent les distances des offres.",
+    )
+    phone = models.CharField(
+        "téléphone",
+        max_length=60,
+        blank=True,
+        help_text="Facultatif. Sert d'en-tête aux CV qu'une extension rédige, "
+        "et l'anonymisation le masque partout ailleurs.",
     )
     onboarded_at = models.DateTimeField("profil complété le", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

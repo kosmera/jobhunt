@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from contextlib import nullcontext
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from django.utils import timezone
 from django.utils.text import slugify
@@ -45,6 +46,11 @@ from tracker.models import (
 )
 from tracker.ports import NotFound
 
+if TYPE_CHECKING:
+    from django.db.models import Model
+
+_Row = TypeVar("_Row", bound="Model")
+
 
 def _nulls_last(value, *, descending: bool = False):
     """A sort key that sends ``None`` to the end whatever the direction."""
@@ -57,7 +63,7 @@ def _date_nulls_last(value: dt.date | None):
     return (1, dt.date.max) if value is None else (0, value)
 
 
-class _Table:
+class _Table(Generic[_Row]):
     """A dict of rows keyed by pk, handing out pks on ``insert``.
 
     The live instance is the row, but what counts as *saved* is the snapshot
@@ -68,13 +74,13 @@ class _Table:
     touched would pass every in-memory test and lose the write for real.
     """
 
-    def __init__(self):
-        self.rows: dict[int, object] = {}
+    def __init__(self) -> None:
+        self.rows: dict[int, _Row] = {}
         self._saved: dict[int, dict[str, object]] = {}
         self._related: dict[int, dict[str, object]] = {}
         self._next = 1
 
-    def insert(self, row):
+    def insert(self, row: _Row) -> _Row:
         """Store ``row`` whole: a new row, or a full save of a stored one."""
         if row.pk is None:
             row.pk = self._next
@@ -86,40 +92,46 @@ class _Table:
         self._snapshot(row)
         return row
 
-    def update(self, row, names):
+    def update(self, row: _Row, names: Iterable[str]) -> _Row:
         """Persist only the fields called ``names`` of a stored row."""
         if row.pk not in self.rows:
             return self.insert(row)
         saved, related = self._saved[row.pk], self._related[row.pk]
+        cache = row._state.fields_cache
         for name in names:
             field = row._meta.get_field(name)
-            saved[field.attname] = getattr(row, field.attname)
-            if field.is_relation and field.name in row._state.fields_cache:
-                related[field.name] = row._state.fields_cache[field.name]
+            attname = getattr(field, "attname", field.name)
+            saved[attname] = getattr(row, attname)
+            if field.is_relation and field.name in cache:
+                related[field.name] = cache[field.name]
         return row
 
-    def _snapshot(self, row):
+    def _snapshot(self, row: _Row) -> None:
         self._saved[row.pk] = {
             field.attname: getattr(row, field.attname) for field in row._meta.concrete_fields
         }
         self._related[row.pk] = dict(row._state.fields_cache)
 
-    def _hydrate(self, row):
+    def _hydrate(self, row: _Row) -> _Row:
         # ``__dict__`` rather than ``setattr``: the foreign-key descriptor
         # would drop the cached related object and the next access would
         # reach the database.
-        row.__dict__.update(self._saved[row.pk])
-        row._state.fields_cache = dict(self._related[row.pk])
+        vars(row).update(self._saved[row.pk])
+        cache = row._state.fields_cache
+        cache.clear()
+        cache.update(self._related[row.pk])
         return row
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[_Row]:
         return (self._hydrate(row) for row in list(self.rows.values()))
 
-    def get(self, pk):
-        row = self.rows.get(pk)
+    def get(self, pk: int | None) -> _Row | None:
+        row = self.rows.get(pk) if pk is not None else None
         return None if row is None else self._hydrate(row)
 
-    def pop(self, pk):
+    def pop(self, pk: int | None) -> None:
+        if pk is None:
+            return
         self.rows.pop(pk, None)
         self._saved.pop(pk, None)
         self._related.pop(pk, None)
@@ -128,7 +140,7 @@ class _Table:
 class MemoryApplications:
     def __init__(self, store: MemoryPersistence):
         self._store = store
-        self._table = _Table()
+        self._table: _Table[Application] = _Table()
 
     def rows(self) -> list[Application]:
         return list(self._table)
@@ -212,7 +224,7 @@ class MemoryApplications:
 class MemoryCompanies:
     def __init__(self, store: MemoryPersistence):
         self._store = store
-        self._table = _Table()
+        self._table: _Table[Company] = _Table()
 
     def rows(self) -> list[Company]:
         return list(self._table)
@@ -234,7 +246,7 @@ class MemoryCompanies:
 
 class MemoryEvents:
     def __init__(self, store: MemoryPersistence):
-        self._table = _Table()
+        self._table: _Table[ActivityEvent] = _Table()
 
     def rows(self) -> list[ActivityEvent]:
         return list(self._table)
@@ -274,7 +286,7 @@ class MemoryEvents:
 class MemoryDocuments:
     def __init__(self, store: MemoryPersistence):
         self._store = store
-        self._table = _Table()
+        self._table: _Table[Document] = _Table()
 
     def rows(self) -> list[Document]:
         return list(self._table)
@@ -311,6 +323,13 @@ class MemoryDocuments:
     def count(self, owner) -> int:
         return sum(1 for row in self._table if row.owner_id == owner.pk)
 
+    def owns_file(self, owner, file_name: str) -> bool:
+        if not file_name:
+            return False
+        return any(
+            row.owner_id == owner.pk and (row.file.name or "") == file_name for row in self._table
+        )
+
     def _drop_for(self, application: Application) -> None:
         for document in [row for row in self._table if row.application_id == application.pk]:
             self._table.pop(document.pk)
@@ -318,7 +337,7 @@ class MemoryDocuments:
 
 class MemoryContacts:
     def __init__(self, store: MemoryPersistence):
-        self._table = _Table()
+        self._table: _Table[Contact] = _Table()
 
     def rows(self) -> list[Contact]:
         return list(self._table)
@@ -342,7 +361,7 @@ class MemoryContacts:
 
 class MemorySkillGaps:
     def __init__(self, store: MemoryPersistence):
-        self._table = _Table()
+        self._table: _Table[SkillGap] = _Table()
 
     def rows(self) -> list[SkillGap]:
         return list(self._table)
@@ -373,6 +392,10 @@ class MemoryPersistence:
 
     def atomic(self):
         return nullcontext()
+
+    def on_commit(self, callback):
+        # Nothing to wait for: there is no transaction to commit.
+        callback()
 
     # -- helpers shared by the repositories --------------------------------
 

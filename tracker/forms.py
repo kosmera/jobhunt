@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from django import forms
 from django.utils import timezone
 
@@ -52,7 +54,8 @@ class OwnedApplicationForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.user = user
         if "source_platform" in self.fields:
-            self.fields["source_platform"].queryset = Platform.objects.for_user(user)
+            platform_field = cast(forms.ModelChoiceField, self.fields["source_platform"])
+            platform_field.queryset = Platform.objects.for_user(user)
         if "distance_km" in self.fields:
             location = profile_for(user).location
             self.fields["distance_km"].help_text = (
@@ -138,10 +141,11 @@ class ApplicationForm(OwnedApplicationForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["source_platform"].empty_label = "— aucune —"
-        self.fields["source_platform"].required = False
+        platform_field = cast(forms.ModelChoiceField, self.fields["source_platform"])
+        platform_field.empty_label = "— aucune —"
+        platform_field.required = False
         for name in ("discovered_on", "applied_on", "follow_up_on"):
-            self.fields[name].input_formats = ["%Y-%m-%d", "%d/%m/%Y"]
+            cast(forms.DateField, self.fields[name]).input_formats = ["%Y-%m-%d", "%d/%m/%Y"]
         if self.instance.pk and self.instance.company_id:
             self.fields["company_name"].initial = self.instance.company.name
             self.fields["company_sector"].initial = self.instance.company.sector
@@ -153,7 +157,8 @@ class ApplicationForm(OwnedApplicationForm):
         return score
 
     def clean(self):
-        cleaned = super().clean()
+        super().clean()
+        cleaned = self.cleaned_data
         applied = cleaned.get("applied_on")
         follow_up = cleaned.get("follow_up_on")
         if applied and follow_up and follow_up < applied:
@@ -214,7 +219,7 @@ class FollowUpForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["follow_up_on"].input_formats = ["%Y-%m-%d", "%d/%m/%Y"]
+        cast(forms.DateField, self.fields["follow_up_on"]).input_formats = ["%Y-%m-%d", "%d/%m/%Y"]
 
 
 class NotesForm(forms.ModelForm):
@@ -248,7 +253,7 @@ class EventForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["happened_on"].initial = timezone.localdate()
-        self.fields["happened_on"].input_formats = ["%Y-%m-%d", "%d/%m/%Y"]
+        cast(forms.DateField, self.fields["happened_on"]).input_formats = ["%Y-%m-%d", "%d/%m/%Y"]
         self.fields["kind"].initial = EventKind.NOTE
 
 
@@ -273,7 +278,8 @@ class DocumentForm(forms.ModelForm):
         self.fields["language"].required = False
 
     def clean(self):
-        cleaned = super().clean()
+        super().clean()
+        cleaned = self.cleaned_data
         upload = cleaned.get("file")
         if upload and not cleaned.get("label"):
             cleaned["label"] = upload.name.rsplit("/", 1)[-1]

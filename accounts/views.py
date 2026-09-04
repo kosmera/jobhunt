@@ -6,10 +6,11 @@ from django.conf import settings
 from django.contrib import auth, messages
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.decorators import login_not_required
-from django.http import Http404, HttpResponseBadRequest
+from django.http import Http404, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.csrf import csrf_failure as django_csrf_failure
 from django.views.decorators.http import require_http_methods, require_POST
 
 from accounts import conf
@@ -22,7 +23,7 @@ from accounts.forms import (
     SignupForm,
     password_form,
 )
-from accounts.middleware import local_auto_sign_in, onboarding_not_required
+from accounts.middleware import is_htmx, local_auto_sign_in, onboarding_not_required
 from accounts.services import (
     LOCAL_BACKEND,
     create_local_user,
@@ -30,6 +31,7 @@ from accounts.services import (
     profile_for,
     sign_in_without_password,
 )
+from rls import as_user
 
 
 def safe_next(request) -> str:
@@ -130,14 +132,16 @@ def _local_chooser(request):
 
     entries = []
     for user in users:
-        profile = profile_for(user)
-        entries.append(
-            {
-                "user": user,
-                "profile": profile,
-                "applications": Application.objects.filter(owner=user).count(),
-            }
-        )
+        # Nobody is signed in yet: each profile is read on its own account's
+        # behalf, the only way the database lets it through.
+        with as_user(user):
+            entries.append(
+                {
+                    "user": user,
+                    "profile": profile_for(user),
+                    "applications": Application.objects.filter(owner=user).count(),
+                }
+            )
     return render(request, "accounts/chooser.html", {"entries": entries, "next": safe_next(request)})
 
 
@@ -166,6 +170,20 @@ def signup(request):
 def logout_view(request):
     auth.logout(request)
     return redirect(settings.LOGOUT_REDIRECT_URL)
+
+
+def csrf_failure(request, reason: str = ""):
+    """``CSRF_FAILURE_VIEW``: a fragment request with a stale token reloads its page.
+
+    A sign-in rotates the token; a tab opened before it still sends the old
+    one and htmx swaps nothing on a 403. ``HX-Refresh`` makes that tab reload
+    and read the new token from the page. Full pages get Django's own view.
+    """
+    if is_htmx(request):
+        response = HttpResponseForbidden("Jeton CSRF périmé : la page va se recharger.")
+        response.headers["HX-Refresh"] = "true"
+        return response
+    return django_csrf_failure(request, reason=reason)
 
 
 # ---------------------------------------------------------------------------

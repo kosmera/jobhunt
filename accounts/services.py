@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from accounts.models import Preferences, Profile
+from rls import as_user
 
 #: Username of the password-less account that the ownership migration creates
 #: to hold data recorded before accounts existed.
@@ -47,9 +48,11 @@ def unique_username(base: str) -> str:
     User = get_user_model()
     stem = slugify(base)[:140] or "profil"
     candidate, counter = stem, 2
-    while User.objects.filter(username__iexact=candidate).exists():
-        candidate = f"{stem}-{counter}"
-        counter += 1
+    # Every account is a candidate for the clash: asked on behalf of nobody.
+    with as_user(None):
+        while User.objects.filter(username__iexact=candidate).exists():
+            candidate = f"{stem}-{counter}"
+            counter += 1
     return candidate
 
 
@@ -63,11 +66,17 @@ def create_local_user(display_name: str):
     return user
 
 
-def complete_onboarding(user, *, display_name: str, headline: str = "", location: str = "") -> Profile:
+def complete_onboarding(
+    user, *, display_name: str, headline: str = "", location: str = "", phone: str = ""
+) -> Profile:
+    """Only ``display_name`` is asked for; the rest fills in over time (the
+    phone is never asked at onboarding, and stays empty until the settings
+    page sets it)."""
     profile = profile_for(user)
     profile.display_name = display_name.strip()
     profile.headline = headline.strip()
     profile.location = location.strip()
+    profile.phone = phone.strip()
     profile.onboarded_at = profile.onboarded_at or timezone.now()
     profile.save()
     preferences_for(user)

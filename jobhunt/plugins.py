@@ -14,7 +14,9 @@ Le descripteur est un objet à attributs simples :
 - ``nav_badges`` : chemin pointé d'une fonction ``f(request)`` renvoyant
   ``{clé: nombre}`` — les compteurs sont ceux du profil connecté ;
 - ``icon_templates`` : gabarits de sprites SVG inclus dans chaque page ;
-- ``application_panels`` : gabarits injectés dans la fiche candidature.
+- ``application_panels`` : gabarits injectés dans la fiche candidature ;
+- ``cv_analyzer`` : chemin pointé d'une classe sans argument qui reçoit le
+  texte anonymisé d'un CV téléversé (``tracker.ports.CVAnalyzer``).
 
 Ce module est importé par ``settings.py`` : rien ici ne doit dépendre du
 chargement des apps Django.
@@ -72,3 +74,20 @@ def plugin_templates(attribute: str) -> list[str]:
     for plugin in get_plugins():
         templates.extend(getattr(plugin, attribute, []))
     return templates
+
+
+def plugin_attribute(name: str) -> str:
+    """La valeur (chaîne) du descripteur qui définit ``name``, sinon ``""``.
+
+    Un attribut de ce genre désigne *le* fournisseur d'un service (l'analyse
+    de CV, par exemple) : deux extensions qui le définissent sont une erreur
+    de configuration, pas un choix silencieux.
+    """
+    found = [(plugin.name, str(getattr(plugin, name))) for plugin in get_plugins() if getattr(plugin, name, "")]
+    if len(found) > 1:
+        from django.core.exceptions import ImproperlyConfigured
+
+        names = ", ".join(plugin_name for plugin_name, _ in found)
+        raise ImproperlyConfigured(f"Plusieurs extensions définissent « {name} » : {names}.")
+    return found[0][1] if found else ""
+

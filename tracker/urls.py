@@ -16,6 +16,9 @@ urlpatterns = [
     path("candidatures/<int:pk>/supprimer/", views.application_delete, name="application_delete"),
     path("documents/", views.document_library, name="document_library"),
     path("documents/<int:pk>/telecharger/", views.document_download, name="document_download"),
+    # A signed, expiring link to one stored file (``get_secure_url`` on the
+    # providers the application serves itself).
+    path("fichiers/<str:token>/", views.private_file, name="private_file"),
     path("analyse/", views.insights, name="insights"),
 
     # --- HTMX fragments ---------------------------------------------------

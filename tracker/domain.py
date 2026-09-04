@@ -18,7 +18,7 @@ from tracker.models import CLOSED_STATUSES, IN_FLIGHT_STATUSES, Application, Eve
 
 #: The timeline entry a transition produces when it is more than a plain
 #: status change.
-TRANSITION_EVENT_KINDS = {
+TRANSITION_EVENT_KINDS: dict[str, str] = {
     Status.SENT: EventKind.APPLIED,
     Status.INTERVIEW: EventKind.INTERVIEW,
     Status.SCREENING: EventKind.CALL,

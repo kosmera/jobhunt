@@ -27,3 +27,23 @@ def check_auth_mode(app_configs, **kwargs):
             )
         )
     return problems
+
+
+@register("accounts")
+def check_tls_origin(app_configs, **kwargs):
+    """Behind TLS, Django only trusts an https origin it was told about."""
+    if (
+        not conf.is_local()
+        and not settings.DEBUG
+        and not settings.SECURE_PROXY_SSL_HEADER
+        and not any(origin.startswith("https://") for origin in settings.CSRF_TRUSTED_ORIGINS)
+    ):
+        return [
+            Warning(
+                "Mode comptes sans origine https dans JOBHUNT_CSRF_TRUSTED_ORIGINS ni "
+                "SECURE_PROXY_SSL_HEADER : derrière TLS, chaque formulaire (et chaque action "
+                "HTMX) sera refusé pour CSRF.",
+                id="accounts.W002",
+            )
+        ]
+    return []

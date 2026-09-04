@@ -25,6 +25,16 @@ from jobhunt.database import (
     database_config,
     is_local_host,
 )
+from jobhunt.storage import (
+    ACCOUNT_KEY_ENV,
+    ACCOUNT_URL_ENV,
+    CONNECTION_STRING_ENV,
+    CONTAINER_ENV,
+    LINK_TTL_ENV,
+    link_ttl_from_env,
+    parse_connection_string,
+    storage_config,
+)
 from tracker import checks
 
 # Deliberately not the current directory: relative SQLite paths must anchor on
@@ -187,6 +197,12 @@ class PostgreSQLConfigTests(SimpleTestCase):
         self.assertEqual(options["options"], "-c statement_timeout=5000")
         self.assertEqual(options["target_session_attrs"], "read-write")
 
+    def test_a_startup_option_presetting_the_account_is_refused(self):
+        with self.assertRaises(ImproperlyConfigured):
+            database_config(f"{AZURE}?options=-c%20app.current_user_id%3D1", base_dir=BASE_DIR)
+        config = database_config(f"{AZURE}?options=-c%20statement_timeout%3D5000", base_dir=BASE_DIR)
+        self.assertEqual(config["OPTIONS"]["options"], "-c statement_timeout=5000")
+
     def test_last_query_value_wins_and_blanks_are_dropped(self):
         config = database_config(
             f"{AZURE}?connect_timeout=5&connect_timeout=9&sslrootcert=", base_dir=BASE_DIR
@@ -307,3 +323,154 @@ class CheckDatabaseTests(SimpleTestCase):
 
         self.assertIn(checks.check_database, registry.registered_checks)
         self.assertEqual(checks.check_database.tags, ("tracker",))
+
+
+# ---------------------------------------------------------------------------
+# Files: JOBHUNT_STORAGE_PROVIDER → STORAGES["default"]
+# ---------------------------------------------------------------------------
+
+CONNECTION_STRING = (
+    "DefaultEndpointsProtocol=https;AccountName=jobhunt;AccountKey=c2VjcmV0;"
+    "EndpointSuffix=core.windows.net"
+)
+
+
+class StorageConfigTests(SimpleTestCase):
+    def test_local_is_the_default_and_needs_nothing(self):
+        for provider in ("local", "LOCAL", " local ", ""):
+            with self.subTest(provider=provider):
+                config = storage_config(provider, {})
+                self.assertEqual(
+                    config,
+                    {
+                        "BACKEND": "tracker.adapters.file_storage.LocalStorageAdapter",
+                        "OPTIONS": {"link_ttl": 300},
+                    },
+                )
+
+    def test_memory_provider(self):
+        config = storage_config("memory", {LINK_TTL_ENV: "60"})
+        self.assertEqual(config["BACKEND"], "tracker.adapters.file_storage.MemoryStorageAdapter")
+        self.assertEqual(config["OPTIONS"], {"link_ttl": 60})
+
+    def test_azure_with_a_connection_string(self):
+        config = storage_config("azure", {CONNECTION_STRING_ENV: CONNECTION_STRING})
+        self.assertEqual(config["BACKEND"], "tracker.adapters.azure_storage.AzureStorageAdapter")
+        # The string itself never reaches the settings: Django's error
+        # reporter redacts a value named « key », not one named otherwise.
+        self.assertEqual(
+            config["OPTIONS"],
+            {
+                "link_ttl": 300,
+                "account_url": "https://jobhunt.blob.core.windows.net",
+                "account_key": "c2VjcmV0",
+                "container": "documents",
+                "retry_total": 1,
+                "connection_timeout": 3,
+                "read_timeout": 30,
+                "initial_backoff": 1,
+            },
+        )
+
+    def test_azure_with_an_account_url_key_and_container(self):
+        config = storage_config(
+            "azure",
+            {
+                ACCOUNT_URL_ENV: "https://jobhunt.blob.core.windows.net/",
+                ACCOUNT_KEY_ENV: "c2VjcmV0",
+                CONTAINER_ENV: "cv-files",
+            },
+        )
+        options = config["OPTIONS"]
+        self.assertEqual(options["account_url"], "https://jobhunt.blob.core.windows.net")
+        self.assertEqual(options["account_key"], "c2VjcmV0")
+        self.assertEqual(options["container"], "cv-files")
+
+    def test_azure_without_a_key_means_a_managed_identity(self):
+        config = storage_config("azure", {ACCOUNT_URL_ENV: "https://jobhunt.blob.core.windows.net"})
+        self.assertIsNone(config["OPTIONS"]["account_key"])
+
+    def test_azure_misconfigurations_are_refused(self):
+        cases = {
+            "nothing": {},
+            "both": {CONNECTION_STRING_ENV: CONNECTION_STRING, ACCOUNT_URL_ENV: "https://a.b"},
+            "key with connection string": {CONNECTION_STRING_ENV: CONNECTION_STRING, ACCOUNT_KEY_ENV: "k"},
+            "plain http": {ACCOUNT_URL_ENV: "http://jobhunt.blob.core.windows.net"},
+            "url with a query": {ACCOUNT_URL_ENV: "https://jobhunt.blob.core.windows.net/?sv=2024"},
+            "sas connection string": {
+                CONNECTION_STRING_ENV: "BlobEndpoint=https://a.blob.core.windows.net;"
+                "SharedAccessSignature=sv=2024&sig=x"
+            },
+            "connection string without a key": {CONNECTION_STRING_ENV: "AccountName=jobhunt"},
+            "malformed connection string": {CONNECTION_STRING_ENV: "AccountName"},
+            "bad container": {ACCOUNT_URL_ENV: "https://a.b", CONTAINER_ENV: "Mes_CV"},
+            "short container": {ACCOUNT_URL_ENV: "https://a.b", CONTAINER_ENV: "cv"},
+        }
+        for label, environ in cases.items():
+            with self.subTest(case=label), self.assertRaises(ImproperlyConfigured):
+                storage_config("azure", environ)
+
+    def test_unknown_provider_is_a_configuration_error(self):
+        for provider in ("s3", "disk", "azur"):
+            with self.subTest(provider=provider), self.assertRaises(ImproperlyConfigured):
+                storage_config(provider, {})
+
+    def test_a_fresh_dict_per_call(self):
+        first = storage_config("local", {})
+        first["OPTIONS"]["poisoned"] = True
+        self.assertNotIn("poisoned", storage_config("local", {})["OPTIONS"])
+
+    def test_reads_the_process_environment_by_default(self):
+        with mock.patch.dict(os.environ, {LINK_TTL_ENV: "120"}):
+            self.assertEqual(storage_config("local")["OPTIONS"]["link_ttl"], 120)
+
+
+class ConnectionStringTests(SimpleTestCase):
+    """Parsed at startup so the string never reaches ``settings.STORAGES``."""
+
+    def test_account_name_and_key(self):
+        self.assertEqual(
+            parse_connection_string(CONNECTION_STRING),
+            ("https://jobhunt.blob.core.windows.net", "c2VjcmV0"),
+        )
+
+    def test_explicit_endpoint_and_suffix_win(self):
+        self.assertEqual(
+            parse_connection_string(
+                "BlobEndpoint=https://jobhunt.blob.core.chinacloudapi.cn/;AccountKey=k"
+            ),
+            ("https://jobhunt.blob.core.chinacloudapi.cn", "k"),
+        )
+        url, _ = parse_connection_string(
+            "DefaultEndpointsProtocol=https;AccountName=a;AccountKey=k;EndpointSuffix=core.usgovcloudapi.net"
+        )
+        self.assertEqual(url, "https://a.blob.core.usgovcloudapi.net")
+
+    def test_azurite(self):
+        url, key = parse_connection_string("UseDevelopmentStorage=true")
+        self.assertEqual(url, "http://127.0.0.1:10000/devstoreaccount1")
+        self.assertTrue(key.endswith("=="))
+
+    def test_what_cannot_sign_a_link_is_refused(self):
+        for value in (
+            "BlobEndpoint=https://a.blob.core.windows.net;SharedAccessSignature=sv=2024&sig=x",
+            "AccountName=jobhunt;EndpointSuffix=core.windows.net",
+            "AccountKey=k",
+            "n'importe quoi",
+        ):
+            with self.subTest(value=value[:30]), self.assertRaises(ImproperlyConfigured):
+                parse_connection_string(value)
+
+
+class LinkTtlFromEnvTests(SimpleTestCase):
+    def test_default_and_override(self):
+        self.assertEqual(link_ttl_from_env({}), 300)
+        self.assertEqual(link_ttl_from_env({LINK_TTL_ENV: " "}), 300)
+        self.assertEqual(link_ttl_from_env({LINK_TTL_ENV: "900"}), 900)
+        self.assertEqual(link_ttl_from_env({LINK_TTL_ENV: "1"}), 1)
+        self.assertEqual(link_ttl_from_env({LINK_TTL_ENV: "3600"}), 3600)
+
+    def test_garbage_and_out_of_range_raise(self):
+        for raw in ("0", "-5", "5m", "1.5", "3601"):
+            with self.subTest(raw=raw), self.assertRaises(ImproperlyConfigured):
+                link_ttl_from_env({LINK_TTL_ENV: raw})

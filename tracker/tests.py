@@ -6,18 +6,29 @@ HTMX app is a template that only breaks once a branch finally has data in it.
 
 from __future__ import annotations
 
+import ast
+import base64
 import datetime as dt
+import io
+import logging
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
-from unittest import mock
+from types import SimpleNamespace
+from typing import Any
+from unittest import mock, skipUnless
+from urllib.parse import parse_qs, quote, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
+from django.core import signing
+from django.core.exceptions import ImproperlyConfigured, SuspiciousFileOperation
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.db import connection
+from django.db import connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import (
     RequestFactory,
@@ -33,11 +44,17 @@ from django.utils import timezone
 import tracker
 from accounts.services import LOCAL_USERNAME, preferences_for, profile_for
 from accounts.testing import OwnedTestCase, make_user
-from tracker import domain, queries, services
-from tracker.adapters import persistence
+from jobhunt import plugins as plugin_registry
+from jobhunt.storage import parse_connection_string
+from tracker import checks, domain, links, privacy, queries, services
+from tracker.adapters import cv_analyzer, document_text, persistence, storage
+from tracker.adapters.azure_storage import AzureStorageAdapter
 from tracker.adapters.django_orm import DjangoPersistence
 from tracker.adapters.memory import MemoryPersistence
+from tracker.adapters.file_storage import LocalStorageAdapter, MemoryStorageAdapter
+from tracker.management.commands import storage_status
 from tracker.models import (
+    DOCUMENT_NAME_MAX_LENGTH,
     PIPELINE_STATUSES,
     ActivityEvent,
     Application,
@@ -54,9 +71,227 @@ from tracker.models import (
     Status,
     WorkMode,
 )
-from tracker.ports import NotFound
+from tracker.ports import MissingFile, NotFound, StorageError, StoragePort
 
 MEDIA = tempfile.mkdtemp(prefix="jobhunt-tests-")
+
+#: A base64 account key, as ``generate_blob_sas`` decodes it before signing.
+AZURE_KEY = base64.b64encode(b"k" * 32).decode()
+
+
+def make_docx(*paragraphs: str, table: tuple[str, ...] = ()) -> bytes:
+    import docx
+
+    document = docx.Document()
+    for paragraph in paragraphs:
+        document.add_paragraph(paragraph)
+    if table:
+        grid = document.add_table(rows=1, cols=len(table))
+        for cell, value in zip(grid.rows[0].cells, table):
+            cell.text = value
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def make_pdf() -> bytes:
+    """A one-page PDF without a text layer (a scan, as far as extraction goes)."""
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+class FakeAnalyzer:
+    """A ``CVAnalyzer`` that records what the core hands it."""
+
+    def __init__(self):
+        self.calls: list[tuple[Any, dict]] = []
+
+    def analyze_cv(self, owner, **kwargs):
+        self.calls.append((owner, kwargs))
+
+
+# --- A stand-in for the Azure SDK's clients: dicts, the SDK's own exceptions ---
+
+
+class FakeDownloader:
+    def __init__(self, data: bytes):
+        self._buffer = io.BytesIO(data)
+        self.size = len(data)
+
+    def read(self, size: int = -1) -> bytes:
+        return self._buffer.read(size)
+
+    def readall(self) -> bytes:
+        return self._buffer.read()
+
+
+class FakeBlob:
+    def __init__(self, container, name: str):
+        self.container, self.name = container, name
+
+    @property
+    def url(self) -> str:
+        return f"https://jobhunt.blob.core.windows.net/{self.container.name}/{quote(self.name, safe='~/')}"
+
+    def _data(self) -> bytes:
+        from azure.core.exceptions import ResourceNotFoundError
+
+        try:
+            return self.container.blobs[self.name]
+        except KeyError:
+            raise ResourceNotFoundError(f"Pas de blob {self.name}")
+
+    def exists(self) -> bool:
+        return self.name in self.container.blobs
+
+    def download_blob(self) -> FakeDownloader:
+        return FakeDownloader(self._data())
+
+    def delete_blob(self) -> None:
+        self._data()
+        del self.container.blobs[self.name]
+
+    def get_blob_properties(self):
+        return SimpleNamespace(
+            size=len(self._data()), last_modified=dt.datetime.now(dt.timezone.utc)
+        )
+
+
+class BrokenBlob:
+    """Every call fails the way an unreachable account does."""
+
+    url = "https://jobhunt.blob.core.windows.net/documents/x"
+
+    def _down(self):
+        from azure.core.exceptions import ServiceRequestError
+
+        raise ServiceRequestError("connexion refusée")
+
+    exists = download_blob = delete_blob = get_blob_properties = _down
+
+
+class FakeContainer:
+    def __init__(self, name: str = "documents"):
+        self.name = name
+        self.blobs: dict[str, bytes] = {}
+        self.uploads: list[tuple] = []
+        self.fail_next_upload = False
+        self.race_on_next_upload = False
+        self.broken = False
+        self.missing = False
+
+    def get_blob_client(self, name: str):
+        return BrokenBlob() if self.broken else FakeBlob(self, name)
+
+    def list_blobs(self, name_starts_with=None):
+        for name in sorted(self.blobs):
+            if not name_starts_with or name.startswith(name_starts_with):
+                yield SimpleNamespace(name=name)
+
+    def get_container_properties(self):
+        from azure.core.exceptions import ResourceNotFoundError, ServiceRequestError
+
+        if self.broken:
+            raise ServiceRequestError("connexion refusée")
+        if self.missing:
+            # The SDK sets ``error_code`` from the response; the stub types it
+            # read-only, hence the targeted ignore rather than a fake response.
+            error = ResourceNotFoundError("pas de conteneur")
+            error.error_code = "ContainerNotFound"  # pyright: ignore[reportAttributeAccessIssue]
+            raise error
+        return SimpleNamespace(name=self.name)
+
+    def upload_blob(self, name, data, length=None, overwrite=False, content_settings=None, **kwargs):
+        from azure.core.exceptions import ResourceExistsError
+
+        if self.fail_next_upload:
+            self.fail_next_upload = False
+            raise ResourceExistsError("existe déjà")
+        if self.race_on_next_upload:
+            # Another writer got there first: the blob is really there now.
+            self.race_on_next_upload = False
+            self.blobs[name] = b"quelqu'un d'autre"
+            raise ResourceExistsError("existe déjà")
+        if name in self.blobs and not overwrite:
+            raise ResourceExistsError("existe déjà")
+        payload = data.read() if hasattr(data, "read") else bytes(data)
+        content_type = getattr(content_settings, "content_type", None)
+        self.uploads.append((name, length, len(payload), content_type))
+        self.blobs[name] = payload
+
+
+class FakeTokenCredential:
+    def get_token(self, *scopes, **kwargs):  # pragma: no cover — shape only
+        raise AssertionError("jamais appelé : la clé de délégation vient du service")
+
+
+class FakeService:
+    def __init__(self, *, account_key: str | None = None, token: bool = False):
+        self.account_name = "jobhunt"
+        if account_key:
+            self.credential: Any = SimpleNamespace(account_name="jobhunt", account_key=account_key)
+        elif token:
+            self.credential = FakeTokenCredential()
+        else:
+            self.credential = "sv=2024-05-04&sig=abc"  # a SAS-only client
+        self.container = FakeContainer()
+        self.delegation_calls: list[tuple[dt.datetime, dt.datetime]] = []
+
+    def get_container_client(self, name: str):
+        assert name == self.container.name, name
+        return self.container
+
+    def get_user_delegation_key(self, start, expiry):
+        from azure.storage.blob import UserDelegationKey
+
+        self.delegation_calls.append((start, expiry))
+        key = UserDelegationKey()
+        key.signed_oid = "00000000-0000-0000-0000-000000000001"
+        key.signed_tid = "00000000-0000-0000-0000-000000000002"
+        key.signed_start = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        key.signed_expiry = expiry.strftime("%Y-%m-%dT%H:%M:%SZ")
+        key.signed_service = "b"
+        key.signed_version = "2020-02-10"
+        key.value = AZURE_KEY
+        return key
+
+
+def azure_adapter(**options) -> tuple[AzureStorageAdapter, FakeService]:
+    service = FakeService(account_key=AZURE_KEY)
+    options.setdefault("container", "documents")
+    return AzureStorageAdapter(client=service, **options), service
+
+
+def azure_settings(service: FakeService, **options) -> dict:
+    """``STORAGES`` pointing the default storage at a fake Azure account."""
+    return {
+        "default": {
+            "BACKEND": "tracker.adapters.azure_storage.AzureStorageAdapter",
+            "OPTIONS": {"client": service, "container": service.container.name, **options},
+        },
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+
+
+#: Enough text for ``services.MIN_TEXT_LENGTH``: a CV the extractor can read.
+CV_BODY = (
+    "Ingénieur DevOps senior, douze ans d'expérience sur des plateformes Linux. "
+    "Automatisation avec Ansible et Terraform, conteneurs Docker et Kubernetes, "
+    "intégration continue GitLab CI, supervision Prometheus et Grafana. "
+    "Bases PostgreSQL et Redis, réseaux et pare-feux, scripts Python et Bash. "
+    "Habitué au travail en équipe réduite et à la reprise de systèmes existants."
+)
+
+
+MEMORY_STORAGES = {
+    "default": {"BACKEND": "tracker.adapters.file_storage.MemoryStorageAdapter", "OPTIONS": {"link_ttl": 60}},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
 
 
 def default_owner():
@@ -230,7 +465,9 @@ class PageRenderTests(OwnedTestCase):
         import urllib.parse
 
         html = self.client.get(reverse("tracker:dashboard")).content.decode()
-        href = re.search(r'<link rel="icon" href="([^"]+)"', html).group(1)
+        match = re.search(r'<link rel="icon" href="([^"]+)"', html)
+        assert match is not None
+        href = match.group(1)
         svg = urllib.parse.unquote(href)
         colours = re.findall(r'(?:fill|stroke)="([^"]+)"', svg)
         self.assertTrue(colours)
@@ -358,7 +595,9 @@ class StatusTransitionTests(TestCase):
             self.application.follow_up_on,
             timezone.localdate() + dt.timedelta(days=self.preferences.follow_up_days),
         )
-        self.assertEqual(self.application.events.first().kind, EventKind.APPLIED)
+        event = self.application.events.first()
+        assert event is not None
+        self.assertEqual(event.kind, EventKind.APPLIED)
 
     def test_the_follow_up_delay_is_the_owner_s(self):
         self.preferences.follow_up_days = 3
@@ -518,7 +757,9 @@ class HtmxEndpointTests(OwnedTestCase):
         preferences.save()
         self.post("tracker:mark_followed_up", [self.application.pk])
         self.application.refresh_from_db()
-        self.assertEqual(self.application.events.first().kind, EventKind.FOLLOW_UP)
+        event = self.application.events.first()
+        assert event is not None
+        self.assertEqual(event.kind, EventKind.FOLLOW_UP)
         self.assertEqual(
             self.application.follow_up_on, timezone.localdate() + dt.timedelta(days=4)
         )
@@ -560,10 +801,41 @@ class HtmxEndpointTests(OwnedTestCase):
         self.assertEqual(document.label, "CV_Haulogy.docx")
         self.assertTrue(document.is_primary)
         self.assertEqual(self.application.primary_cv, document)
+        name = document.file.name or ""
+        self.assertEqual(name, f"documents/{self.user.pk}/{self.application.slug}/CV_Haulogy.docx")
+        self.assertTrue(storage().file_exists(name))
+        self.assertEqual(document.size_bytes, len(b"contenu"))
 
-        response = self.post("tracker:delete_document", [document.pk])
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.post("tracker:delete_document", [document.pk])
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.application.documents.count(), 0)
+        # The bytes go once the rows agree, never before.
+        self.assertFalse(storage().file_exists(name))
+
+    def test_a_cv_upload_reaches_the_analyzer_anonymised_and_other_kinds_do_not(self):
+        analyzer = FakeAnalyzer()
+        with mock.patch("tracker.views.cv_analyzer", return_value=analyzer):
+            self.client.post(
+                reverse("tracker:add_document", args=[self.application.pk]),
+                {"file": SimpleUploadedFile("cv.txt", f"Lionel, lionel@x.be, 0470 12 34 56\n{CV_BODY}".encode()),
+                 "kind": DocumentKind.CV, "label": "Mon CV", "language": Language.FR},
+                HTTP_HX_REQUEST="true",
+            )
+            self.client.post(
+                reverse("tracker:add_document", args=[self.application.pk]),
+                {"file": SimpleUploadedFile("annonce.txt", f"lionel@x.be\n{CV_BODY}".encode()),
+                 "kind": DocumentKind.POSTING},
+                HTTP_HX_REQUEST="true",
+            )
+        (owner, call), = analyzer.calls
+        cv = self.application.documents.get(kind=DocumentKind.CV)
+        self.assertEqual(owner, self.user)
+        self.assertEqual(set(call), {"document_id", "label", "language", "text"})
+        self.assertEqual((call["document_id"], call["label"], call["language"]), (cv.pk, "Mon CV", "fr"))
+        self.assertTrue(call["text"].text.startswith("[NOM], [EMAIL], [TELEPHONE]"))
+        # Only the text travels: no instance, no handle, no path.
+        self.assertNotIn("document", call)
 
     def test_uploading_a_second_primary_demotes_the_first(self):
         for index in (1, 2):
@@ -737,17 +1009,61 @@ class DocumentStorageTests(TestCase):
         )
         path = Path(document.file.path)
         self.assertTrue(path.exists())
-        application.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            application.delete()
         self.assertFalse(path.exists())
 
-    def test_deleting_a_document_removes_its_file(self):
+    def test_deleting_a_document_removes_its_file_once_the_row_is_gone(self):
         document = make_document(
             kind=DocumentKind.CV, label="CV.docx",
             file=SimpleUploadedFile("single.docx", b"contenu"),
         )
         path = Path(document.file.path)
-        document.delete()
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            document.delete()
+            # Still there while the deletion could still be rolled back.
+            self.assertTrue(path.exists())
+        self.assertEqual(len(callbacks), 1)
         self.assertFalse(path.exists())
+
+    def test_a_rolled_back_deletion_keeps_the_file(self):
+        document = make_document(
+            kind=DocumentKind.CV, label="CV.docx",
+            file=SimpleUploadedFile("rollback.docx", b"contenu"),
+        )
+        path, pk = Path(document.file.path), document.pk  # ``delete`` clears the pk
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with transaction.atomic():
+                document.delete()
+                transaction.set_rollback(True)
+        self.assertEqual(callbacks, [])
+        self.assertTrue(path.exists())
+        self.assertTrue(Document.objects.filter(pk=pk).exists())
+
+    def test_the_size_is_recorded_once_and_read_from_the_row(self):
+        document = make_document(
+            kind=DocumentKind.CV, label="CV", file=SimpleUploadedFile("s.docx", b"12345"),
+        )
+        self.assertEqual(document.size_bytes, 5)
+        document = Document.objects.get(pk=document.pk)
+        with mock.patch.object(LocalStorageAdapter, "size", side_effect=AssertionError("appelé")):
+            self.assertEqual(document.size_display, "5 o")
+        # A row without the column (an extension wrote it): the storage, once.
+        Document.objects.filter(pk=document.pk).update(size_bytes=None)
+        document = Document.objects.get(pk=document.pk)
+        self.assertEqual(document.size_display, "5 o")
+        Path(document.file.path).unlink()
+        self.assertEqual(document.size_display, "—")
+
+    def test_a_provider_failure_on_delete_is_logged_not_raised(self):
+        document = make_document(
+            kind=DocumentKind.CV, label="CV", file=SimpleUploadedFile("d.docx", b"x"),
+        )
+        with mock.patch.object(LocalStorageAdapter, "delete", side_effect=StorageError("panne")):
+            with self.assertLogs("tracker.models", "ERROR"):
+                with self.captureOnCommitCallbacks(execute=True):
+                    document.delete()
+        self.assertFalse(Document.objects.filter(pk=document.pk).exists())
 
 
 @override_settings(MEDIA_ROOT=MEDIA)
@@ -764,33 +1080,43 @@ class DocumentDownloadTests(OwnedTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("attachment", response.headers["Content-Disposition"])
         self.assertIn("cv-base", response.headers["Content-Disposition"])
-        self.assertEqual(b"".join(response.streaming_content), b"contenu")
+        self.assertEqual(b"".join(getattr(response, "streaming_content")), b"contenu")
 
-    def test_pages_link_the_download_view_not_the_media_path(self):
+    def test_pages_link_the_download_view_not_a_file_path_nor_a_link(self):
         response = self.client.get(reverse("tracker:document_library"))
         self.assertContains(response, self.document.get_download_url())
-        self.assertNotContains(response, self.document.file.url)
+        self.assertNotContains(response, "/media/")
+        self.assertNotContains(response, "/fichiers/")
 
     def test_media_paths_are_not_served(self):
         """Also under DEBUG: the old ``static(MEDIA_URL)`` mount only existed
-        there, and the test runner forces DEBUG off."""
+        there, and the test runner forces DEBUG off. ``file.url`` is no
+        longer that path but a signed link (see PrivateFileViewTests)."""
         import importlib
 
         from django.urls import Resolver404, clear_url_caches, resolve
 
         import jobhunt.urls
 
-        self.assertEqual(self.client.get(self.document.file.url).status_code, 404)
+        media_path = "/" + settings.MEDIA_URL.strip("/") + "/" + (self.document.file.name or "")
+        self.assertTrue(self.document.file.url.startswith("/fichiers/"))
+        self.assertEqual(self.client.get(media_path).status_code, 404)
         try:
             with override_settings(DEBUG=True):
                 importlib.reload(jobhunt.urls)
                 clear_url_caches()
                 with self.assertRaises(Resolver404):
-                    resolve(self.document.file.url)
-                self.assertEqual(self.client.get(self.document.file.url).status_code, 404)
+                    resolve(media_path)
+                self.assertEqual(self.client.get(media_path).status_code, 404)
         finally:
             importlib.reload(jobhunt.urls)
             clear_url_caches()
+
+    def test_download_streams_through_the_port_with_its_size(self):
+        response = self.client.get(self.document.get_download_url())
+        self.assertEqual(response.headers["Content-Length"], "7")
+        self.assertEqual(response.headers["Content-Type"],
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
     def test_reassigning_an_application_carries_its_documents(self):
         other = make_user("Marie")
@@ -1147,7 +1473,7 @@ class AutoMigrateRunserverTests(TestCase):
             )
         )
         if changes is not None:
-            outcome = (
+            outcome: dict[str, Any] = (
                 {"side_effect": changes} if isinstance(changes, Exception) else {"return_value": changes}
             )
             self.enterContext(
@@ -1291,7 +1617,7 @@ class OwnershipMigrationTests(TransactionTestCase):
         self.seed(apps)
         self.replay()
 
-        user = get_user_model().objects.get()
+        user = User.objects.get()
         self.assertEqual(user.username, LOCAL_USERNAME)
         self.assertFalse(user.has_usable_password())
         self.assertFalse(profile_for(user).is_onboarded)
@@ -1301,11 +1627,10 @@ class OwnershipMigrationTests(TransactionTestCase):
     def test_orphans_go_to_the_only_existing_account(self):
         apps = self.rewind()
         # ``auth`` is untouched by the rewind: the live model is the right one.
-        admin = get_user_model().objects.create_user("admin", password="x")
+        admin = User.objects.create_user("admin", password="x")
         self.seed(apps)
         self.replay()
 
-        User = get_user_model()
         self.assertEqual(User.objects.count(), 1)
         self.assert_everything_belongs_to(User.objects.get(pk=admin.pk))
         self.assertFalse(profile_for(User.objects.get()).is_onboarded)
@@ -1651,6 +1976,7 @@ class DomainRuleTests(SimpleTestCase):
         transition = domain.plan_transition(
             application, Status.SENT, today=self.TODAY, follow_up_days=10
         )
+        assert transition is not None
         self.assertEqual(transition.fields, ("status", "applied_on", "follow_up_on", "closed_on"))
         self.assertEqual(transition.event_kind, EventKind.APPLIED)
         self.assertEqual(transition.event_title, "À postuler → Candidature envoyée")
@@ -1661,6 +1987,7 @@ class DomainRuleTests(SimpleTestCase):
         closing = domain.plan_transition(
             application, Status.REJECTED, today=self.TODAY, follow_up_days=10
         )
+        assert closing is not None
         self.assertEqual(closing.fields, ("status", "closed_on", "follow_up_on"))
         self.assertEqual(closing.event_kind, EventKind.REJECTION)
         self.assertIsNone(application.follow_up_on)
@@ -1715,6 +2042,7 @@ class ServiceRuleTests(SimpleTestCase):
     def setUp(self):
         User = get_user_model()
         self.store = MemoryPersistence()
+        self.files = MemoryStorageAdapter()
         self.user = User(pk=1, username="lionel")
         self.other = User(pk=2, username="marie")
         self.company = Company(pk=1, owner=self.user, name="Acme")
@@ -1835,9 +2163,9 @@ class ServiceRuleTests(SimpleTestCase):
 
         def upload(name):
             return services.attach_document(
-                self.user, application,
-                Document(kind=DocumentKind.CV, is_primary=True, file=SimpleUploadedFile(name, b"x")),
-                label=name, persistence=self.store,
+                self.user, application, Document(kind=DocumentKind.CV, is_primary=True),
+                label=name, upload=SimpleUploadedFile(name, b"x"),
+                persistence=self.store, storage=self.files,
             )
 
         first = upload("CV1.docx")
@@ -1846,29 +2174,45 @@ class ServiceRuleTests(SimpleTestCase):
         self.assertTrue(second.is_primary)
         self.assertEqual(first.owner_id, self.user.pk)
         self.assertIs(first.application, application)
+        self.assertEqual(first.file.name, f"documents/1/{application.slug}/CV1.docx")
+        self.assertTrue(self.files.file_exists(first.file.name or ""))
+        self.assertEqual(first.size_bytes, 1)
         self.assertEqual(
             [e.title for e in self.events(application)],
             ["Document ajouté : CV1.docx", "Document ajouté : CV2.docx"],
         )
 
         library = services.attach_document(
-            self.user, None,
-            Document(kind=DocumentKind.CV, file=SimpleUploadedFile("base.docx", b"x")),
-            label="Base", persistence=self.store,
+            self.user, None, Document(kind=DocumentKind.CV),
+            label="Base", upload=SimpleUploadedFile("base.docx", b"x"),
+            persistence=self.store, storage=self.files,
         )
         self.assertIsNone(library.application)
         self.assertEqual(library.owner_id, self.user.pk)
+        self.assertEqual(library.file.name, "documents/1/bibliotheque/base.docx")
         self.assertEqual(len(self.events(application)), 2)
         self.assertEqual(self.store.documents.count(self.user), 3)
+
+    def test_a_row_that_cannot_be_written_leaves_no_file_behind(self):
+        application = self.application()
+        with mock.patch.object(self.store.documents, "add", side_effect=RuntimeError("panne")):
+            with self.assertRaises(RuntimeError):
+                services.attach_document(
+                    self.user, application, Document(kind=DocumentKind.CV), label="CV",
+                    upload=SimpleUploadedFile("cv.docx", b"x"),
+                    persistence=self.store, storage=self.files,
+                )
+        self.assertFalse(self.files.file_exists(f"documents/1/{application.slug}/cv.docx"))
+        self.assertEqual(self.store.documents.count(self.user), 0)
 
     def test_deletions_return_the_application_and_refuse_a_stranger(self):
         application = self.application()
         event = self.store.events.add(application, EventKind.NOTE, "x")
         contact = self.store.contacts.add(Contact(application=application, name="X"))
         document = services.attach_document(
-            self.user, application,
-            Document(kind=DocumentKind.CV, file=SimpleUploadedFile("cv.docx", b"x")),
-            label="CV", persistence=self.store,
+            self.user, application, Document(kind=DocumentKind.CV),
+            label="CV", upload=SimpleUploadedFile("cv.docx", b"x"),
+            persistence=self.store, storage=self.files,
         )
         for remove, pk in (
             (services.delete_event, event.pk),
@@ -1878,14 +2222,18 @@ class ServiceRuleTests(SimpleTestCase):
             with self.subTest(remove=remove.__name__):
                 with self.assertRaises(NotFound):
                     remove(self.other, pk, persistence=self.store)
+        self.assertTrue(self.files.file_exists(document.file.name or ""))
         self.assertIs(services.delete_event(self.user, event.pk, persistence=self.store), application)
         self.assertIs(
             services.delete_contact(self.user, contact.pk, persistence=self.store), application
         )
-        removed = services.delete_document(self.user, document.pk, persistence=self.store)
+        removed = services.delete_document(
+            self.user, document.pk, persistence=self.store, storage=self.files
+        )
         self.assertIs(removed.application, application)
         self.assertEqual(removed.label, "CV")
         self.assertEqual(self.store.documents.count(self.user), 0)
+        self.assertFalse(self.files.file_exists(document.file.name or ""))
         self.assertIs(
             services.delete_application(self.user, application.pk, persistence=self.store),
             application,
@@ -1954,8 +2302,8 @@ class ServiceRuleTests(SimpleTestCase):
     def test_nav_counters(self):
         self.populate()
         services.attach_document(
-            self.user, None, Document(kind=DocumentKind.CV, file=SimpleUploadedFile("b.docx", b"x")),
-            label="Base", persistence=self.store,
+            self.user, None, Document(kind=DocumentKind.CV), label="Base",
+            upload=SimpleUploadedFile("b.docx", b"x"), persistence=self.store, storage=self.files,
         )
         self.assertEqual(
             services.nav_counters(self.user, stale_days=14, today=self.TODAY, persistence=self.store),
@@ -2102,6 +2450,1148 @@ class QueryBudgetTests(OwnedTestCase):
         self.assertLessEqual(self.count_queries(post), 12)
 
 
+class AnonymizeTests(SimpleTestCase):
+    """The anonymiser: direct identifiers out, the rest of the CV intact."""
+
+    def redact(self, text, **identity):
+        return privacy.anonymize(text, known=privacy.known_identity(**identity))
+
+    def test_contact_line(self):
+        result = self.redact(
+            "lionel.dupont@example.be • +32 470 12 34 56 • linkedin.com/in/lioneldupont • "
+            "https://github.com/lionel"
+        )
+        self.assertEqual(result.text, "[EMAIL] • [TELEPHONE] • [URL] • [URL]")
+        self.assertEqual(result.redactions, {"EMAIL": 1, "TELEPHONE": 1, "URL": 2})
+
+    def test_phone_notations(self):
+        for phone in ("0470 12 34 56", "0470/12.34.56", "0470123456", "+32 470 12 34 56",
+                      "+32470123456", "+32 (0)2 123 45 67", "02 123 45 67", "0032 2 987 65 43",
+                      "010 22 33 44", "+33 6 12 34 56 78"):
+            with self.subTest(phone=phone):
+                self.assertEqual(self.redact(f"Tél. {phone} (soir)").text, "Tél. [TELEPHONE] (soir)")
+
+    def test_what_is_not_a_phone_survives(self):
+        text = ("2019-2021 : Acme. 06/2019 - 08/2021 mission Odoo (version 16.0). Python 3.12. "
+                "01/02/2020. 2010-2015 à l'ULB. Note 0 à 5. Budget 0470 €. 08:30. "
+                "02.03.2021 - 02.05.2021. Terraform 1.5.7, 2 enfants, 10 ans d'expérience.")
+        self.assertEqual(self.redact(text).text, text)
+
+    def test_identifiers(self):
+        result = self.redact(
+            "IBAN BE68 5390 0754 7034 · NISS 85.07.30-033.28 · Né le 30/07/1985 à Nivelles · Âge : 41 ans"
+        )
+        self.assertEqual(
+            result.text, "IBAN [IBAN] · NISS [NISS] · Né le [DATE-DE-NAISSANCE] · Âge : [AGE]"
+        )
+
+    def test_birth_date_and_place_notations(self):
+        cases = {
+            "Date de naissance : 30 juillet 1985": "Date de naissance : [DATE-DE-NAISSANCE]",
+            "Née le 1er mars 1990 à La Louvière.": "Née le [DATE-DE-NAISSANCE].",
+            "Born on 1985-07-30 in Mons": "Born on [DATE-DE-NAISSANCE]",
+            "Né à Braine-l'Alleud, 2 enfants": "Né à [LIEU], 2 enfants",
+            "Born in Mons, 1985-07-30.": "Born in [LIEU].",
+            "geboren op 30.07.1985 te Gent": "geboren op [DATE-DE-NAISSANCE]",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(self.redact(text).text, expected)
+
+    def test_addresses(self):
+        cases = {
+            "Chaussée de Namur 12 bte 3, 1400 Nivelles": "[ADRESSE], [ADRESSE]",
+            "Rue de la Station 3": "[ADRESSE]",
+            "Avenue Louise 54 – 1050 Bruxelles – Belgique": "[ADRESSE] – [ADRESSE] – Belgique",
+            "Kerkstraat 12, 2000 Antwerpen": "[ADRESSE], [ADRESSE]",
+            # Right after a street, « · 2018 Python » reads as a postcode and
+            # a town: the separator a two-column contact table produces is
+            # exactly this one, so the address wins over the false positive.
+            "Grote Markt 5 · 2018 Python": "[ADRESSE] · [ADRESSE]",
+            "Rue Neuve 12 · 1400 Nivelles · Belgique": "[ADRESSE] · [ADRESSE] · Belgique",
+            "Chemin de la Cure 12A": "[ADRESSE]",
+            "Adresse : B-1000 Bruxelles": "Adresse : [ADRESSE]",
+            "Formation à l'ULB, 1050 Bruxelles, Belgique.": "Formation à l'ULB, [ADRESSE], Belgique.",
+            "Rue Neuve 12\n1400 Nivelles\n2019 Python": "[ADRESSE]\n[ADRESSE]\n2019 Python",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(self.redact(text).text, expected)
+
+    def test_what_is_not_an_address_survives(self):
+        text = ("AWS (EC2, Route 53, IAM). Place 2 au hackathon 2019. Projet chemin de fer 2020. "
+                "Bruxelles, 2019 Python. Marketplace 12 ventes. 2000 Antwerpen (sans rue) reste.")
+        self.assertEqual(self.redact(text).text, text)
+
+    def test_ordinary_french_sentences_are_not_addresses(self):
+        """The keyword list is made of everyday nouns; only the shape of a
+        real address — a capitalised name then a number that ends it —
+        should trigger the rule."""
+        for text in (
+            "Cours de Java 2 à l'ULB",
+            "chemin critique de la version 2 du projet",
+            "Ma place dans une équipe de 4 personnes",
+            "3 h par semaine sur ce chantier",
+            "Boulevard des idées reçues sur 12 ans de carrière",
+            "Sur la route depuis 3 ans",
+            "Allée simple ou 2 allers-retours",
+            "500 K€ de budget",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.redact(text).text, text)
+
+    def test_notations_a_french_cv_template_produces(self):
+        cases = {
+            "Né(e) le 30/07/1985": "Né(e) le [DATE-DE-NAISSANCE]",
+            "Naissance : 30 juillet 1985": "Naissance : [DATE-DE-NAISSANCE]",
+            "Né(e) à Nivelles": "Né(e) à [LIEU]",
+            "(+32) 470 12 34 56": "[TELEPHONE]",
+            "+32 (0)2 123 45 67": "[TELEPHONE]",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(self.redact(text).text, expected)
+
+    def test_the_profile_s_identity_is_masked_whole_word_case_and_accent_insensitive(self):
+        result = self.redact(
+            "LIONEL DUPONT — Lionel Dupont, dit Lionél. Habite Nivelles (NIVELLES). "
+            "lionel.dupont@example.be. Le mot « Lionelle » et « dupontel » restent.",
+            display_name="Lionel Dupont", username="lionel", email="lionel.dupont@example.be",
+            location="Nivelles",
+        )
+        self.assertEqual(
+            result.text,
+            "[NOM] — [NOM], dit [NOM]. Habite [LIEU] ([LIEU]). [EMAIL]. "
+            "Le mot « Lionelle » et « dupontel » restent.",
+        )
+        self.assertEqual(result.redactions["NOM"], 3)
+        self.assertEqual(result.redactions["LIEU"], 2)
+
+    def test_known_identity_skips_short_tokens_and_plain_usernames(self):
+        known = privacy.known_identity(
+            display_name="Jo De Smet", username="local", email="jo@x.be", location=""
+        )
+        self.assertEqual(known, {"Jo De Smet": "NOM", "Smet": "NOM", "jo@x.be": "EMAIL"})
+        self.assertEqual(self.redact("Le marché local de Jo", display_name="Jo", username="local").text,
+                         "Le marché local de Jo")
+
+    def test_a_known_phone_backs_up_the_pattern(self):
+        """Le motif couvre les formes usuelles ; le numéro que le profil
+        détient rattrape celle qu'il manque — ici l'indicatif américain avec
+        son indicatif régional entre parenthèses."""
+        odd = "+1 (415) 555-0134"
+        self.assertIn(odd, self.redact(f"Tel {odd}").text)
+        self.assertEqual(self.redact(f"Tel {odd}", phone=odd).text, "Tel [TELEPHONE]")
+        # Un profil sans téléphone n'ajoute rien au dictionnaire.
+        self.assertEqual(privacy.known_identity(phone=""), {})
+        self.assertEqual(
+            privacy.known_identity(phone="+32 470 12 34 56"), {"+32 470 12 34 56": "TELEPHONE"}
+        )
+
+    def test_summary_in_french(self):
+        self.assertEqual(privacy.anonymize("rien").summary(), "rien à masquer")
+        self.assertEqual(self.redact("a@b.be").summary(), "1 e-mail masqué")
+        self.assertEqual(
+            self.redact("a@b.be c@d.be 0470 12 34 56").summary(),
+            "2 e-mails, 1 numéro de téléphone masqués",
+        )
+
+    def test_empty_text(self):
+        result = privacy.anonymize("")
+        self.assertEqual((result.text, result.redactions, result.total), ("", {}, 0))
+
+
+class DocumentTextTests(SimpleTestCase):
+    """The extractor behind ``extract_and_anonymize_text``."""
+
+    def setUp(self):
+        # pypdf logs a warning for the deliberately corrupt file below.
+        pypdf_logger = logging.getLogger("pypdf")
+        pypdf_logger.disabled = True
+        self.addCleanup(setattr, pypdf_logger, "disabled", False)
+
+    docx = staticmethod(make_docx)
+    pdf = staticmethod(make_pdf)
+
+    def test_docx_paragraphs_then_tables(self):
+        data = self.docx("Lionel Dupont", "", "Ingénieur DevOps", table=("Python", "Django"))
+        self.assertEqual(
+            document_text.extract_text("cv.docx", data), "Lionel Dupont\nIngénieur DevOps\nPython · Django"
+        )
+
+    def test_docx_headers_footers_and_nested_tables_are_read(self):
+        """Word and Canva templates park the contact block in a header and a
+        column in a text box; missing them makes a real CV look like a scan."""
+        import docx
+
+        document = docx.Document()
+        document.sections[0].header.paragraphs[0].text = "Lionel Dupont · lionel@example.be"
+        document.sections[0].footer.paragraphs[0].text = "Chaussée de Namur 12, 1400 Nivelles"
+        document.add_paragraph("Ingénieur DevOps senior")
+        table = document.add_table(rows=1, cols=2)
+        table.rows[0].cells[0].text = "Python"
+        table.rows[0].cells[1].text = "Django"
+        table.rows[0].cells[0].add_table(rows=1, cols=1).rows[0].cells[0].text = "Terraform"
+        buffer = io.BytesIO()
+        document.save(buffer)
+
+        text = document_text.extract_text("cv.docx", buffer.getvalue())
+        for expected in ("lionel@example.be", "1400 Nivelles", "Ingénieur DevOps senior",
+                         "Python", "Django", "Terraform"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, text)
+        self.assertEqual(text.count("Lionel Dupont"), 1)
+
+    def test_text_and_markdown_are_read_as_utf8(self):
+        self.assertEqual(document_text.extract_text("cv.txt", "Élodie\n".encode()), "Élodie")
+        self.assertEqual(document_text.extract_text("cv.MD", b"# CV\n"), "# CV")
+        self.assertEqual(document_text.extract_text("cv.txt", b"\xff\xfe"), "\ufffd\ufffd")
+
+    def test_a_pdf_without_a_text_layer_is_empty_not_an_error(self):
+        self.assertEqual(document_text.extract_text("cv.pdf", self.pdf()), "")
+
+    def test_unsupported_and_corrupt_files(self):
+        for name, data in (("cv.odt", b"x"), ("cv", b"x"), ("cv.doc", b"x"),
+                           ("cv.pdf", b"not a pdf"), ("cv.docx", b"not a zip")):
+            with self.subTest(name=name), self.assertRaises(document_text.UnsupportedFormat):
+                document_text.extract_text(name, data)
+        self.assertTrue(document_text.is_supported("x/y/CV.PDF"))
+        self.assertFalse(document_text.is_supported("x/y/CV.odt"))
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class StoragePortContractTests(SimpleTestCase):
+    """Every provider honours ``StoragePort`` the same way: disk, memory, Azure."""
+
+    def adapters(self):
+        azure, _ = azure_adapter()
+        return [("local", LocalStorageAdapter()), ("memory", MemoryStorageAdapter()), ("azure", azure)]
+
+    def each_adapter(self, check):
+        for name, files in self.adapters():
+            with self.subTest(provider=name):
+                self.assertIsInstance(files, StoragePort)
+                check(files)
+
+    def test_round_trip_with_sanitised_and_deduplicated_names(self):
+        def check(files):
+            name = files.save_file("documents/1/acme-devops/CV base é.docx", b"octets")
+            self.assertEqual(name, "documents/1/acme-devops/CV_base_é.docx")
+            self.assertTrue(files.file_exists(name))
+            with files.open_file(name) as handle:
+                self.assertEqual(handle.read(), b"octets")
+            again = files.save_file("documents/1/acme-devops/CV base é.docx", io.BytesIO(b"bis"))
+            self.assertRegex(again, r"^documents/1/acme-devops/CV_base_é_\w{7}\.docx$")
+            self.assertEqual(files.open_file(again).read(), b"bis")
+            files.delete_file(name)
+            files.delete_file(name)  # already gone: not an error
+            self.assertFalse(files.file_exists(name))
+            with self.assertRaises(MissingFile):
+                files.open_file(name)
+            with self.assertRaises(SuspiciousFileOperation):
+                files.save_file("documents/1/../2/cv.docx", b"x")
+
+        self.each_adapter(check)
+
+    def test_listing_sizing_and_dating_what_is_stored(self):
+        def check(files):
+            # A prefix of its own: the local adapter shares MEDIA_ROOT with
+            # the rest of the class.
+            names = {
+                files.save_file(f"documents/70{n}/bibliotheque/cv.txt", b"octets") for n in (1, 2)
+            }
+            files.save_file("ailleurs/note.txt", b"x")
+            files.save_file("documents-anciens/note.txt", b"x")
+            under = set(files.list_files("documents"))
+            self.assertTrue(names <= under)
+            # A folder, not a bare string prefix.
+            self.assertNotIn("documents-anciens/note.txt", under)
+            self.assertNotIn("ailleurs/note.txt", under)
+            self.assertTrue(names <= set(files.list_files()))
+            self.assertEqual(set(files.list_files("documents/701")), {sorted(names)[0]})
+            one = sorted(names)[0]
+            self.assertEqual(files.file_size(one), 6)
+            self.assertLess(
+                (dt.datetime.now(dt.timezone.utc) - files.file_modified_at(one)).total_seconds(), 120
+            )
+            self.assertEqual(list(files.list_files("documents/999")), [])
+
+        self.each_adapter(check)
+
+    def test_extract_and_anonymize_text(self):
+        known = privacy.known_identity(display_name="Lionel Dupont", email="lionel@x.be")
+
+        def check(files):
+            name = files.save_file(
+                "documents/1/bibliotheque/cv.txt", "Lionel Dupont · lionel@x.be · 0470 12 34 56".encode()
+            )
+            plain = files.extract_and_anonymize_text(name)
+            self.assertEqual(plain.text, "Lionel Dupont · [EMAIL] · [TELEPHONE]")
+            self.assertEqual(files.extract_and_anonymize_text(name, known=known).text,
+                             "[NOM] · [EMAIL] · [TELEPHONE]")
+            docx = files.save_file("documents/1/bibliotheque/cv.docx", make_docx("Marie", "0470 12 34 56"))
+            self.assertEqual(files.extract_and_anonymize_text(docx).text, "Marie\n[TELEPHONE]")
+            odt = files.save_file("documents/1/bibliotheque/cv.odt", b"x")
+            with self.assertRaises(document_text.UnsupportedFormat):
+                files.extract_and_anonymize_text(odt)
+            with self.assertRaises(MissingFile):
+                files.extract_and_anonymize_text("documents/1/bibliotheque/absent.txt")
+
+        self.each_adapter(check)
+
+    def test_links_of_the_providers_the_application_serves(self):
+        for name, files in self.adapters()[:2]:
+            with self.subTest(provider=name):
+                self.assertTrue(files.served_by_app)
+                url = files.get_secure_url("documents/7/bibliotheque/cv.pdf")
+                self.assertTrue(url.startswith("/fichiers/"))
+                token = url[len("/fichiers/"):].rstrip("/")
+                self.assertEqual(links.read_link(token), ("documents/7/bibliotheque/cv.pdf", 7))
+                # The Django face of the same object hands out the same link.
+                self.assertTrue(files.url("documents/7/bibliotheque/cv.pdf").startswith("/fichiers/"))
+                with self.assertRaises(ValueError):
+                    files.url("")
+                # Outside the layout: a link nobody can open (see the view).
+                token = files.get_secure_url("ailleurs/cv.pdf")[len("/fichiers/"):].rstrip("/")
+                self.assertEqual(links.read_link(token), ("ailleurs/cv.pdf", None))
+
+    def test_the_django_face_and_the_port_hand_out_the_same_link(self):
+        def check(files):
+            name = files.save_file("documents/7/bibliotheque/cv.pdf", b"x")
+            self.assertEqual(files.url(name), files.get_secure_url(name))
+            with self.assertRaises(ValueError):
+                files.url("")
+            with self.assertRaises(ValueError):
+                files.url(None)
+
+        self.each_adapter(check)
+
+    def test_a_stored_name_never_outgrows_the_column(self):
+        def check(files):
+            long_name = "documents/1/" + "s" * 200 + "/" + "n" * 255 + ".docx"
+            for _ in range(3):
+                name = files.save_file(long_name, b"x", max_length=DOCUMENT_NAME_MAX_LENGTH)
+                self.assertLessEqual(len(name), DOCUMENT_NAME_MAX_LENGTH)
+                self.assertTrue(files.file_exists(name))
+
+        self.each_adapter(check)
+
+    def test_a_handle_can_be_read_again(self):
+        def check(files):
+            name = files.save_file("documents/1/bibliotheque/cv.txt", b"abcdef")
+            handle = files.open_file(name)
+            self.assertEqual(handle.read(2), b"ab")
+            handle.open("rb")
+            self.assertEqual(handle.read(), b"abcdef")
+            handle.close()
+            self.assertEqual(handle.open("rb").read(), b"abcdef")
+
+        self.each_adapter(check)
+
+    def test_a_name_no_storage_would_accept_reads_as_a_missing_file(self):
+        def check(files):
+            for name in ("../../etc/passwd", "documents/1/../../etc/passwd", "/etc/passwd"):
+                with self.subTest(name=name):
+                    with self.assertRaises(MissingFile):
+                        files.open_file(name)
+                    self.assertFalse(files.file_exists(name))
+                    files.delete_file(name)  # not an error either
+
+        self.each_adapter(check)
+
+    def test_link_tokens_expire_and_refuse_tampering(self):
+        url = MemoryStorageAdapter().get_secure_url("documents/7/bibliotheque/cv.pdf")
+        token = url[len("/fichiers/"):].rstrip("/")
+        with mock.patch("django.core.signing.time.time", return_value=time.time() + 61):
+            self.assertEqual(links.read_link(token, max_age=120)[1], 7)
+            with self.assertRaises(links.BadLink):
+                links.read_link(token, max_age=60)
+        for bad in (token[:-2] + "zz", "n'importe quoi", signing.dumps(["pas", "un", "dict"], salt=links.SALT)):
+            with self.subTest(token=bad[:12]), self.assertRaises(links.BadLink):
+                links.read_link(bad)
+        self.assertEqual(links.link_ttl(), 300)
+        with override_settings(STORAGES=MEMORY_STORAGES):
+            self.assertEqual(links.link_ttl(), 60)
+
+
+class AzureAdapterTests(SimpleTestCase):
+    """The Azure adapter against a fake account: uploads, downloads, SAS links."""
+
+    NAME = "documents/1/acme-devops/CV base.pdf"
+
+    def test_sas_link(self):
+        files, service = azure_adapter(link_ttl=300)
+        self.assertFalse(files.served_by_app)
+        before = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+        url = files.get_secure_url(self.NAME)
+        parts = urlsplit(url)
+        self.assertEqual((parts.scheme, parts.netloc), ("https", "jobhunt.blob.core.windows.net"))
+        self.assertEqual(parts.path, "/documents/documents/1/acme-devops/CV%20base.pdf")
+        query = {key: values[0] for key, values in parse_qs(parts.query).items()}
+        self.assertEqual((query["sp"], query["sr"]), ("r", "b"))
+        self.assertIn("sig", query)
+        start = dt.datetime.strptime(query["st"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        expiry = dt.datetime.strptime(query["se"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        self.assertEqual(expiry - start, dt.timedelta(minutes=5, seconds=300))
+        self.assertLessEqual(abs((expiry - before).total_seconds() - 300), 2)
+        self.assertEqual(query["rscd"], 'attachment; filename="CV base.pdf"')
+        self.assertEqual(urlsplit(files.url(self.NAME)).path, parts.path)
+
+    def test_the_sas_window_sits_inside_the_delegation_key_and_forbids_http(self):
+        service = FakeService(token=True)
+        files = AzureStorageAdapter(client=service, link_ttl=300)
+        url = files.get_secure_url(self.NAME)
+        self.assertEqual(url.count("?"), 1)
+        query = {key: values[0] for key, values in parse_qs(urlsplit(url).query).items()}
+        self.assertEqual(query["spr"], "https")
+        moment = lambda value: dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        self.assertLessEqual(moment(query["skt"]), moment(query["st"]))
+        self.assertLessEqual(moment(query["se"]), moment(query["ske"]))
+
+    def test_a_client_whose_url_already_carries_a_query_keeps_one_question_mark(self):
+        files, service = azure_adapter()
+
+        class Queried(FakeBlob):
+            @property
+            def url(self):
+                return super().url + "?sv=2024-05-04&sig=déjà"
+
+        with mock.patch.object(FakeContainer, "get_blob_client",
+                               lambda container, name: Queried(container, name)):
+            url = files.get_secure_url(self.NAME)
+        self.assertEqual(url.count("?"), 1)
+        self.assertNotIn("déjà", url)
+
+    def test_a_missing_container_is_a_provider_failure_not_a_missing_file(self):
+        files, service = azure_adapter()
+        service.container.missing = True
+        with self.assertRaises(StorageError):
+            files.check_container()
+        service.container.missing = False
+        files.check_container()  # present: nothing raised
+
+    def test_a_stream_that_fails_mid_download_is_a_storage_error(self):
+        files, service = azure_adapter()
+        service.container.blobs[self.NAME] = b"abcdef"
+        handle = files.open_file(self.NAME)
+        from azure.core.exceptions import IncompleteReadError
+
+        with mock.patch.object(FakeDownloader, "read", side_effect=IncompleteReadError("coupé")):
+            with self.assertRaises(StorageError):
+                handle.read()
+
+    def test_describe_names_the_account_and_how_links_are_signed(self):
+        files, _ = azure_adapter()
+        self.assertEqual(
+            files.describe(),
+            {"Compte": "jobhunt", "Conteneur": "documents", "Signature": "clé de compte"},
+        )
+        identity = AzureStorageAdapter(client=FakeService(token=True))
+        self.assertEqual(identity.describe()["Signature"], "identité (clé de délégation)")
+
+    def test_a_french_basename_gets_an_rfc_6266_disposition(self):
+        files, _ = azure_adapter()
+        query = parse_qs(urlsplit(files.get_secure_url("documents/1/b/CV Élodie.pdf")).query)
+        self.assertEqual(query["rscd"][0], "attachment; filename*=utf-8''CV%20%C3%89lodie.pdf")
+
+    def test_upload_rewinds_the_stream_and_declares_length_and_content_type(self):
+        files, service = azure_adapter()
+        upload = SimpleUploadedFile("cv.pdf", b"%PDF-1.4 contenu")
+        upload.read(5)  # a reader left the position elsewhere
+        name = files.save_file("documents/1/acme/cv.pdf", upload)
+        self.assertEqual(name, "documents/1/acme/cv.pdf")
+        self.assertEqual(service.container.uploads, [(name, 16, 16, "application/pdf")])
+        self.assertEqual(service.container.blobs[name], b"%PDF-1.4 contenu")
+
+    def test_a_name_taken_between_the_check_and_the_write_gets_another_one(self):
+        files, service = azure_adapter()
+        # Someone else wrote that exact blob after ``exists()`` said no.
+        service.container.race_on_next_upload = True
+        name = files.save_file("documents/1/acme/cv.pdf", b"x", max_length=DOCUMENT_NAME_MAX_LENGTH)
+        self.assertRegex(name, r"^documents/1/acme/cv_\w{7}\.pdf$")
+        self.assertEqual(service.container.blobs[name], b"x")
+
+    def test_a_retried_name_still_fits_the_column(self):
+        files, service = azure_adapter()
+        service.container.race_on_next_upload = True
+        long_name = "documents/1/" + "s" * 200 + "/" + "n" * 255 + ".pdf"
+        name = files.save_file(long_name, b"x", max_length=DOCUMENT_NAME_MAX_LENGTH)
+        self.assertLessEqual(len(name), DOCUMENT_NAME_MAX_LENGTH)
+        self.assertEqual(service.container.blobs[name], b"x")
+
+    def test_a_name_that_stays_taken_is_a_storage_error(self):
+        files, service = azure_adapter()
+
+        def always_taken(*args, **kwargs):
+            from azure.core.exceptions import ResourceExistsError
+
+            raise ResourceExistsError("existe déjà")
+
+        service.container.upload_blob = always_taken
+        with self.assertRaises(StorageError):
+            files.save_file("documents/1/acme/cv2.pdf", b"x")
+
+    def test_download_handle(self):
+        files, service = azure_adapter()
+        service.container.blobs[self.NAME] = b"abcdef"
+        handle = files.open_file(self.NAME)
+        self.assertEqual(handle.size, 6)
+        self.assertEqual(handle.read(2), b"ab")
+        self.assertEqual(handle.read(), b"cdef")
+        self.assertFalse(handle.seekable())
+        handle.close()
+        handle.open("rb")
+        self.assertEqual(handle.read(), b"abcdef")
+        with self.assertRaises(ValueError):
+            handle.open("wb")
+        self.assertEqual(files.size(self.NAME), 6)
+        files.delete_file(self.NAME)
+        self.assertNotIn(self.NAME, service.container.blobs)
+        with self.assertRaises(MissingFile):
+            files.size(self.NAME)
+
+    def test_sdk_failures_become_storage_errors(self):
+        files, service = azure_adapter()
+        service.container.broken = True
+        for operation in (files.file_exists, files.open_file, files.delete_file, files.size):
+            with self.subTest(operation=operation.__name__), self.assertRaises(StorageError):
+                operation(self.NAME)
+
+    def test_user_delegation_key_is_fetched_once_and_renewed_in_time(self):
+        service = FakeService(token=True)
+        files = AzureStorageAdapter(client=service, link_ttl=300)
+        first = files.get_secure_url(self.NAME)
+        files.get_secure_url(self.NAME)
+        self.assertEqual(len(service.delegation_calls), 1)
+        self.assertIn("skoid", parse_qs(urlsplit(first).query))
+        start, expiry = service.delegation_calls[0]
+        self.assertEqual(expiry - start, dt.timedelta(hours=2, minutes=15))
+        later = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1, minutes=50)
+        with mock.patch("tracker.adapters.azure_storage._now", return_value=later):
+            files.get_secure_url(self.NAME)
+        self.assertEqual(len(service.delegation_calls), 2)
+
+    def test_a_client_that_cannot_sign_is_a_configuration_error(self):
+        files = AzureStorageAdapter(client=FakeService())  # SAS-only credential
+        with self.assertRaises(ImproperlyConfigured):
+            files.get_secure_url(self.NAME)
+        with self.assertRaises(ImproperlyConfigured):
+            AzureStorageAdapter()
+
+    def test_the_real_client_is_built_from_the_settings(self):
+        from azure.storage.blob import BlobServiceClient
+
+        files = AzureStorageAdapter(
+            account_url="https://jobhunt.blob.core.windows.net", account_key=AZURE_KEY, container="cv"
+        )
+        self.assertIsInstance(files.client, BlobServiceClient)
+        self.assertEqual(files.client.account_name, "jobhunt")
+        self.assertEqual(files.container.container_name, "cv")
+        url = files.get_secure_url("documents/1/b/cv.pdf")
+        self.assertTrue(url.startswith("https://jobhunt.blob.core.windows.net/cv/documents/1/b/cv.pdf?"))
+        # A connection string is parsed by jobhunt.storage, never handed over.
+        url, key = parse_connection_string(
+            "DefaultEndpointsProtocol=https;AccountName=jobhunt;"
+            f"AccountKey={AZURE_KEY};EndpointSuffix=core.windows.net"
+        )
+        connection = AzureStorageAdapter(account_url=url, account_key=key)
+        self.assertIn("sig=", connection.get_secure_url("documents/1/b/cv.pdf"))
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class PrivateFileViewTests(OwnedTestCase):
+    """``get_secure_url`` on the providers the application serves itself."""
+
+    def setUp(self):
+        super().setUp()
+        self.document = make_document(
+            kind=DocumentKind.CV, label="CV base",
+            file=SimpleUploadedFile("cv-base.docx", b"contenu"),
+        )
+        self.name = self.document.file.name or ""
+        self.link = storage().get_secure_url(self.name)
+
+    def test_the_owner_follows_the_link(self):
+        response = self.client.get(self.link)
+        self.assertEqual(response.status_code, 200)
+        # Files outlive the test database in MEDIA: the name may carry a suffix.
+        self.assertRegex(response.headers["Content-Disposition"], r'^attachment; filename="cv-base\w*\.docx"$')
+        self.assertEqual(response.headers["Content-Length"], "7")
+        self.assertEqual(b"".join(getattr(response, "streaming_content")), b"contenu")
+        self.assertEqual(self.document.file.url[:10], "/fichiers/")
+
+    def test_altered_or_foreign_tokens_are_404(self):
+        for url in (self.link[:-3] + "zz/", "/fichiers/nimporte-quoi/",
+                    reverse("tracker:private_file", args=[signing.dumps({"n": "x.txt", "u": None}, salt=links.SALT)]),
+                    reverse("tracker:private_file", args=[signing.dumps({"n": self.name}, salt="autre")])):
+            with self.subTest(url=url[:30]):
+                self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_an_expired_link_is_404(self):
+        with mock.patch("django.core.signing.time.time", return_value=time.time() + 301):
+            self.assertEqual(self.client.get(self.link).status_code, 404)
+        with mock.patch("django.core.signing.time.time", return_value=time.time() + 200):
+            self.assertEqual(self.client.get(self.link).status_code, 200)
+
+    def test_someone_else_cannot_use_the_owner_s_link(self):
+        self.client.force_login(make_user("Marie"))
+        self.assertEqual(self.client.get(self.link).status_code, 404)
+
+    def test_a_link_is_checked_against_the_rows_not_only_its_signature(self):
+        # A perfectly signed link to a file no document of this account
+        # claims: the signature is not authority.
+        orphan = storage().save_file(f"documents/{self.user.pk}/bibliotheque/orphelin.docx", b"x")
+        self.assertEqual(self.client.get(links.make_link(orphan)).status_code, 404)
+        # And the document's own link still works.
+        self.assertEqual(self.client.get(self.link).status_code, 200)
+
+    def test_a_file_stored_before_the_account_layout_is_served_to_its_owner(self):
+        """Rows from before the per-account folders (``documents/<slug>/…``)
+        carry no account in their name: the row decides, not the path."""
+        legacy = storage().save_file("documents/bibliotheque/ancien.docx", b"ancien")
+        Document.objects.filter(pk=self.document.pk).update(file=legacy)
+        link = storage().get_secure_url(legacy)
+        self.assertEqual(links.read_link(link[len("/fichiers/"):].rstrip("/"))[1], None)
+        self.assertEqual(self.client.get(link).status_code, 200)
+        self.client.force_login(make_user("Marie"))
+        self.assertEqual(self.client.get(link).status_code, 404)
+
+    @override_settings(AUTH_MODE="accounts")
+    def test_a_visitor_is_sent_to_the_login_page(self):
+        self.client.logout()
+        response = self.client.get(self.link)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].startswith(reverse("accounts:login")))
+
+    def test_a_missing_file_is_404_and_an_outage_503(self):
+        with mock.patch.object(LocalStorageAdapter, "open_file", side_effect=StorageError("panne")):
+            with self.assertLogs("tracker.views", "WARNING"):
+                self.assertEqual(self.client.get(self.link).status_code, 503)
+                self.assertEqual(self.client.get(self.document.get_download_url()).status_code, 503)
+        storage().delete_file(self.name)
+        self.assertEqual(self.client.get(self.link).status_code, 404)
+        self.assertEqual(self.client.get(self.document.get_download_url()).status_code, 404)
+
+    def test_the_memory_provider_serves_the_same_way(self):
+        with override_settings(STORAGES=MEMORY_STORAGES):
+            document = make_document(
+                kind=DocumentKind.CV, label="Mémoire", file=SimpleUploadedFile("m.txt", "en mémoire".encode()),
+            )
+            response = self.client.get(storage().get_secure_url(document.file.name or ""))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(b"".join(getattr(response, "streaming_content")), "en mémoire".encode())
+            self.assertEqual(self.client.get(document.get_download_url()).status_code, 200)
+
+
+def azurite_is_running() -> bool:
+    """Whether the Azure emulator answers on its usual port (see the README)."""
+    import socket
+
+    with socket.socket() as probe:
+        probe.settimeout(0.2)
+        return probe.connect_ex(("127.0.0.1", 10000)) == 0
+
+
+@skipUnless(azurite_is_running(), "Azurite n'écoute pas sur 127.0.0.1:10000")
+class AzuriteTests(SimpleTestCase):
+    """The Azure adapter against the real SDK and the official emulator.
+
+    The fake client in ``AzureAdapterTests`` pins what the adapter *asks*;
+    this pins what the service actually *does* — the truncation trap on a
+    partly read upload, the permissions a SAS really carries, and the
+    encoding of a French filename. Skipped unless Azurite is running:
+
+        docker run -d --name jobhunt-azurite -p 127.0.0.1:10000:10000 \
+          mcr.microsoft.com/azure-storage/azurite azurite-blob --blobHost 0.0.0.0
+    """
+
+    def setUp(self):
+        from jobhunt.storage import parse_connection_string
+        from tracker.adapters.azure_storage import AzureStorageAdapter
+
+        # One container per test: deleting a container is asynchronous, so
+        # sharing one makes the next test race the previous one's cleanup.
+        name = re.sub(r"[^a-z0-9]+", "-", self._testMethodName.lower()).strip("-")
+        self.CONTAINER = f"jh-{name}"[:63].rstrip("-")
+        url, key = parse_connection_string("UseDevelopmentStorage=true")
+        self.files = AzureStorageAdapter(account_url=url, account_key=key, container=self.CONTAINER)
+        from azure.core.exceptions import ResourceExistsError
+
+        try:
+            self.files.container.create_container()
+        except ResourceExistsError:
+            pass
+        self.addCleanup(self.files.container.delete_container)
+
+    def test_an_upload_read_half_way_is_still_stored_whole(self):
+        payload = b"%PDF-1.4 " + b"contenu " * 100
+        upload = SimpleUploadedFile("CV Éléonore.pdf", payload)
+        upload.read(17)  # the SDK reads from the current position and never rewinds
+        name = self.files.save_file(
+            "documents/1/acme/CV Éléonore.pdf", upload, max_length=DOCUMENT_NAME_MAX_LENGTH
+        )
+        self.assertEqual(self.files.size(name), len(payload))
+        self.assertEqual(self.files.open_file(name).read(), payload)
+
+    def test_a_secure_url_reads_and_only_reads(self):
+        import requests
+
+        payload = b"contenu"
+        name = self.files.save_file("documents/1/acme/CV Éléonore.pdf", payload)
+        response = requests.get(self.files.get_secure_url(name), timeout=10)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, payload)
+        # RFC 6266 for a name the header cannot carry as-is.
+        self.assertEqual(
+            response.headers["content-disposition"],
+            "attachment; filename*=utf-8''CV_%C3%89l%C3%A9onore.pdf",
+        )
+        written = requests.put(
+            self.files.get_secure_url(name),
+            data=b"pirate",
+            headers={"x-ms-blob-type": "BlockBlob"},
+            timeout=10,
+        )
+        self.assertEqual(written.status_code, 403)
+        self.assertEqual(self.files.open_file(name).read(), payload)
+
+    def test_collisions_deletions_and_what_is_not_there(self):
+        first = self.files.save_file("documents/1/acme/cv.pdf", b"un")
+        second = self.files.save_file("documents/1/acme/cv.pdf", b"deux")
+        self.assertNotEqual(first, second)
+        self.assertEqual(self.files.open_file(first).read(), b"un")
+        self.assertEqual(self.files.open_file(second).read(), b"deux")
+        with self.assertRaises(MissingFile):
+            self.files.open_file("documents/1/acme/absent.pdf")
+        self.files.delete_file(first)
+        self.files.delete_file(first)  # idempotent
+        self.assertFalse(self.files.file_exists(first))
+
+    def test_a_container_that_is_not_there_is_a_provider_failure(self):
+        from jobhunt.storage import parse_connection_string
+        from tracker.adapters.azure_storage import AzureStorageAdapter
+
+        url, key = parse_connection_string("UseDevelopmentStorage=true")
+        elsewhere = AzureStorageAdapter(account_url=url, account_key=key, container="nexistepas")
+        with self.assertRaises(StorageError):
+            elsewhere.check_container()
+
+    def test_text_extraction_straight_from_a_blob(self):
+        name = self.files.save_file(
+            "documents/1/bibliotheque/cv.docx",
+            make_docx("Lionel Dupont", "lionel@example.be · 0470 12 34 56", CV_BODY),
+        )
+        result = self.files.extract_and_anonymize_text(
+            name, known=privacy.known_identity(display_name="Lionel Dupont")
+        )
+        self.assertTrue(result.text.startswith("[NOM]\n[EMAIL] · [TELEPHONE]"))
+        self.assertNotIn("example.be", result.text)
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class DocumentAdminTests(TestCase):
+    """The admin reads ``document.file.url``: it must never be a raw path,
+    and never raise (``ClearableFileInput`` only swallows ``AttributeError``)."""
+
+    def test_the_change_form_shows_a_signed_link_not_a_media_path(self):
+        admin = make_user("Boss", username="boss")
+        admin.is_staff = admin.is_superuser = True
+        admin.save()
+        self.client.force_login(admin)
+        application = make_application(owner=admin)
+        document = make_document(
+            application=application, kind=DocumentKind.CV, label="CV",
+            file=SimpleUploadedFile("admin.docx", b"x"),
+        )
+        for url in (
+            reverse("admin:tracker_document_change", args=[document.pk]),
+            reverse("admin:tracker_document_changelist"),
+            reverse("admin:tracker_application_change", args=[application.pk]),
+        ):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+        body = self.client.get(
+            reverse("admin:tracker_document_change", args=[document.pk])
+        ).content.decode()
+        self.assertIn("/fichiers/", body)
+        self.assertNotIn("/media/", body)
+
+
+class DocumentDownloadOnAzureTests(OwnedTestCase):
+    """With the bytes elsewhere, the download view sends the browser there."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = FakeService(account_key=AZURE_KEY)
+        self.override = override_settings(STORAGES=azure_settings(self.service, link_ttl=300))
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.application = make_application()
+
+    def upload(self, name="CV.pdf", kind=DocumentKind.CV, **data):
+        return self.client.post(
+            reverse("tracker:add_document", args=[self.application.pk]),
+            {"file": SimpleUploadedFile(name, b"%PDF-1.4 x"), "kind": kind, **data},
+            HTTP_HX_REQUEST="true",
+        )
+
+    def test_upload_download_and_delete_go_through_the_blob_container(self):
+        self.assertEqual(self.upload().status_code, 200)
+        document = self.application.documents.get()
+        name = document.file.name or ""
+        self.assertEqual(name, f"documents/{self.user.pk}/{self.application.slug}/CV.pdf")
+        self.assertEqual(self.service.container.blobs[name], b"%PDF-1.4 x")
+        self.assertEqual(document.size_bytes, 10)
+
+        response = self.client.get(document.get_download_url())
+        self.assertEqual(response.status_code, 302)
+        location = response.headers["Location"]
+        self.assertTrue(location.startswith(
+            f"https://jobhunt.blob.core.windows.net/documents/documents/{self.user.pk}/"
+        ))
+        self.assertEqual(parse_qs(urlsplit(location).query)["sp"], ["r"])
+        self.assertEqual(urlsplit(document.file.url).netloc, "jobhunt.blob.core.windows.net")
+
+        # The library page lists the row without a single call to the account.
+        self.service.container.broken = True
+        response = self.client.get(reverse("tracker:document_library"))
+        self.assertContains(response, "CV.pdf")
+        self.service.container.broken = False
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                reverse("tracker:delete_document", args=[document.pk]), HTTP_HX_REQUEST="true"
+            )
+        self.assertEqual(self.service.container.blobs, {})
+
+    def test_the_library_page_never_asks_the_provider_for_a_size(self):
+        for index in range(3):
+            self.upload(name=f"CV{index}.pdf")
+        self.assertEqual(self.application.documents.count(), 3)
+        # Every row carries its size, so a listing costs no round-trip — and
+        # renders even while the account is unreachable.
+        self.service.container.broken = True
+        response = self.client.get(reverse("tracker:document_library"))
+        self.assertEqual(response.status_code, 200)
+        for index in range(3):
+            self.assertContains(response, f"CV{index}.pdf")
+        self.assertContains(response, "10 o")
+
+    def test_a_row_without_its_size_falls_back_and_survives_an_outage(self):
+        self.upload()
+        document = self.application.documents.get()
+        Document.objects.filter(pk=document.pk).update(size_bytes=None)
+        document = Document.objects.get(pk=document.pk)
+        self.assertEqual(document.size_display, "10 o")
+        self.service.container.broken = True
+        document = Document.objects.get(pk=document.pk)
+        self.assertEqual(document.size_display, "—")
+
+    def test_a_stranger_gets_404_before_any_link_is_minted(self):
+        self.upload()
+        document = self.application.documents.get()
+        self.client.force_login(make_user("Marie"))
+        self.assertEqual(self.client.get(document.get_download_url()).status_code, 404)
+
+    def test_a_cv_upload_is_analysed_from_the_blob(self):
+        analyzer = FakeAnalyzer()
+        with mock.patch("tracker.views.cv_analyzer", return_value=analyzer):
+            self.client.post(
+                reverse("tracker:add_document", args=[self.application.pk]),
+                {"file": SimpleUploadedFile("cv.txt", f"Jo jo@x.be\n{CV_BODY}".encode()),
+                 "kind": DocumentKind.CV},
+                HTTP_HX_REQUEST="true",
+            )
+        (_, call), = analyzer.calls
+        self.assertTrue(call["text"].text.startswith("Jo [EMAIL]"))
+
+
+class IngestCVTests(SimpleTestCase):
+    """The CV use case on the memory adapters: no database, no disk, no SDK."""
+
+    def setUp(self):
+        self.store = MemoryPersistence()
+        self.files = MemoryStorageAdapter()
+        self.user = User(pk=1, username="lionel", email="lionel.dupont@example.be")
+        self.analyzer = FakeAnalyzer()
+        self.known = privacy.known_identity(
+            display_name="Lionel Dupont", username="lionel", email=self.user.email, location="Nivelles"
+        )
+
+    def ingest(self, upload, application=None, analyzer: Any = "default", **fields):
+        return services.ingest_cv(
+            self.user, application, Document(kind=DocumentKind.CV, language="fr", **fields),
+            upload=upload, label="Mon CV", known=self.known,
+            analyzer=self.analyzer if analyzer == "default" else analyzer,
+            persistence=self.store, storage=self.files,
+        )
+
+    def test_the_analyzer_gets_the_anonymised_text_and_nothing_else(self):
+        payload = make_docx("Lionel Dupont", "lionel.dupont@example.be · 0470 12 34 56 · Nivelles",
+                            CV_BODY)
+        intake = self.ingest(SimpleUploadedFile("Mon CV.docx", payload))
+        self.assertTrue(intake.analyzed)
+        document = intake.document
+        self.assertEqual(document.file.name, "documents/1/bibliotheque/Mon_CV.docx")
+        self.assertTrue(self.files.file_exists(document.file.name or ""))
+        self.assertEqual(document.size_bytes, len(payload))
+        self.assertEqual(self.store.documents.count(self.user), 1)
+        (owner, call), = self.analyzer.calls
+        self.assertIs(owner, self.user)
+        self.assertEqual(set(call), {"document_id", "label", "language", "text"})
+        self.assertEqual((call["document_id"], call["label"], call["language"]), (document.pk, "Mon CV", "fr"))
+        self.assertIs(call["text"], intake.anonymized)
+        self.assertEqual(
+            call["text"].text, f"[NOM]\n[EMAIL] · [TELEPHONE] · [LIEU]\n{CV_BODY}"
+        )
+        self.assertNotIn("lionel", call["text"].text.lower())
+        self.assertEqual(call["text"].summary(), "1 e-mail, 1 numéro de téléphone, 1 nom, 1 lieu masqués")
+
+    def test_an_attached_cv_is_filed_under_the_application_and_logged(self):
+        company = self.store.companies.get_or_create(self.user, "Acme", Sector.PRIVATE)
+        application = self.store.applications.add(
+            Application(owner=self.user, company=company, title="DevOps", status=Status.TO_APPLY)
+        )
+        intake = self.ingest(
+            SimpleUploadedFile("cv.txt", CV_BODY.encode()), application=application, is_primary=True
+        )
+        self.assertEqual(intake.document.file.name, f"documents/1/{application.slug}/cv.txt")
+        self.assertIs(intake.document.application, application)
+        self.assertEqual([e.title for e in self.store.events.rows()], ["Document ajouté : Mon CV"])
+
+    def test_the_label_crosses_the_port_anonymised_too(self):
+        """It defaults to the uploaded file name, which carries the applicant's
+        name far more reliably than the CV body does."""
+        upload = SimpleUploadedFile("CV Lionel Dupont - Nivelles.txt", CV_BODY.encode())
+        intake = services.ingest_cv(
+            self.user, None, Document(kind=DocumentKind.CV, language="fr"),
+            upload=upload, label=upload.name or "", known=self.known,
+            analyzer=self.analyzer, persistence=self.store, storage=self.files,
+        )
+        (_, call), = self.analyzer.calls
+        self.assertEqual(call["label"], "CV [NOM] - [LIEU].txt")
+        self.assertNotIn("Lionel", call["label"])
+        # What the owner sees in their own library is untouched.
+        self.assertEqual(intake.document.label, "CV Lionel Dupont - Nivelles.txt")
+
+    def test_an_analyzer_that_raises_does_not_lose_the_upload(self):
+        class Broken:
+            def analyze_cv(self, owner, **kwargs):
+                raise RuntimeError("le copilote a explosé")
+
+        with self.assertLogs("tracker.services", "ERROR"):
+            intake = self.ingest(SimpleUploadedFile("cv.txt", CV_BODY.encode()), analyzer=Broken())
+        self.assertFalse(intake.analyzed)
+        self.assertIsNotNone(intake.anonymized)
+        self.assertEqual(self.store.documents.count(self.user), 1)
+        self.assertTrue(self.files.file_exists(intake.document.file.name or ""))
+
+    def test_a_storage_outage_while_reading_back_does_not_lose_the_upload(self):
+        with mock.patch.object(MemoryStorageAdapter, "extract_and_anonymize_text",
+                               side_effect=StorageError("panne")):
+            with self.assertLogs("tracker.services", "ERROR"):
+                intake = self.ingest(SimpleUploadedFile("cv.txt", CV_BODY.encode()))
+        self.assertEqual((intake.analyzed, intake.anonymized), (False, None))
+        self.assertEqual(self.analyzer.calls, [])
+        self.assertTrue(self.files.file_exists(intake.document.file.name or ""))
+
+    def test_unreadable_formats_are_stored_but_not_analysed(self):
+        intake = self.ingest(SimpleUploadedFile("cv.odt", b"pas lisible"))
+        self.assertFalse(intake.analyzed)
+        self.assertIsNone(intake.anonymized)
+        self.assertTrue(self.files.file_exists(intake.document.file.name or ""))
+        self.assertEqual(self.analyzer.calls, [])
+
+    def test_a_scan_without_text_is_not_analysed(self):
+        intake = self.ingest(SimpleUploadedFile("scan.pdf", make_pdf()))
+        self.assertFalse(intake.analyzed)
+        assert intake.anonymized is not None
+        self.assertEqual(intake.anonymized.text, "")
+        self.assertEqual(self.analyzer.calls, [])
+
+    def test_too_little_text_to_be_a_cv_is_stored_but_not_analysed(self):
+        short = ("CV-" * services.MIN_TEXT_LENGTH)[: services.MIN_TEXT_LENGTH - 1]
+        self.assertEqual(len(short), services.MIN_TEXT_LENGTH - 1)
+        intake = self.ingest(SimpleUploadedFile("court.txt", short.encode()))
+        self.assertFalse(intake.analyzed)
+        self.assertEqual(self.analyzer.calls, [])
+        self.assertTrue(self.files.file_exists(intake.document.file.name or ""))
+        # One character more and it is analysed: the threshold is the only reason.
+        self.assertTrue(self.ingest(SimpleUploadedFile("long.txt", (short + "x").encode())).analyzed)
+
+    def test_without_an_analyzer_nothing_is_extracted(self):
+        with mock.patch.object(MemoryStorageAdapter, "extract_and_anonymize_text",
+                               side_effect=AssertionError("extrait")):
+            intake = self.ingest(SimpleUploadedFile("cv.txt", CV_BODY.encode()), analyzer=None)
+        self.assertEqual((intake.analyzed, intake.anonymized), (False, None))
+        self.assertTrue(self.files.file_exists("documents/1/bibliotheque/cv.txt"))
+
+    def test_a_failed_row_write_removes_the_stored_file(self):
+        with mock.patch.object(self.store.documents, "add", side_effect=RuntimeError("panne")):
+            with self.assertRaises(RuntimeError):
+                self.ingest(SimpleUploadedFile("cv.txt", CV_BODY.encode()))
+        self.assertFalse(self.files.file_exists("documents/1/bibliotheque/cv.txt"))
+        self.assertEqual(self.analyzer.calls, [])
+
+
+class StoragePruneTests(TestCase):
+    """The sweep that collects what a rollback or a crash left behind."""
+
+    def setUp(self):
+        self.files = MemoryStorageAdapter()
+        self.override = override_settings(
+            STORAGES={
+                "default": {
+                    "BACKEND": "tracker.adapters.file_storage.MemoryStorageAdapter",
+                    "OPTIONS": {"link_ttl": 60},
+                },
+                "staticfiles": MEMORY_STORAGES["staticfiles"],
+            }
+        )
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.user = make_user("Lionel", username="lionel")
+
+    def prune(self, *args):
+        out = io.StringIO()
+        call_command("storage_prune", *args, stdout=out)
+        return out.getvalue()
+
+    def test_a_referenced_file_is_never_touched(self):
+        document = make_document(
+            owner=self.user, kind=DocumentKind.CV, label="CV",
+            file=SimpleUploadedFile("cv.docx", b"contenu"),
+        )
+        name = document.file.name or ""
+        report = self.prune("--older-than", "0", "--delete")
+        self.assertIn("Aucun fichier orphelin", report)
+        self.assertTrue(storage().file_exists(name))
+
+    def test_an_orphan_is_listed_then_removed_only_with_delete(self):
+        orphan = storage().save_file(f"documents/{self.user.pk}/bibliotheque/perdu.docx", b"x")
+        self.assertIn(orphan, self.prune("--older-than", "0"))
+        self.assertTrue(storage().file_exists(orphan))  # dry run by default
+        self.assertIn("1 fichier(s) supprimé", self.prune("--older-than", "0", "--delete"))
+        self.assertFalse(storage().file_exists(orphan))
+
+    def test_an_upload_in_flight_is_not_collected(self):
+        """Its bytes are written and its row is not: the grace period is what
+        keeps the sweep from deleting a file mid-request."""
+        fresh = storage().save_file(f"documents/{self.user.pk}/bibliotheque/en-cours.docx", b"x")
+        report = self.prune("--delete")
+        self.assertIn("Aucun fichier orphelin", report)
+        self.assertIn("1 fichier(s) récent(s) ignoré", report)
+        self.assertTrue(storage().file_exists(fresh))
+
+    def test_a_negative_grace_is_refused(self):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            self.prune("--older-than", "-1")
+
+
+class StorageResolverTests(SimpleTestCase):
+    def test_the_configured_backend_is_the_port(self):
+        self.assertIsInstance(storage(), LocalStorageAdapter)
+        with override_settings(STORAGES=MEMORY_STORAGES):
+            backend = storage()
+            self.assertIsInstance(backend, MemoryStorageAdapter)
+            self.assertIs(storage(), backend)
+            assert isinstance(backend, MemoryStorageAdapter)
+            self.assertEqual(backend.link_ttl, 60)
+        self.assertIsInstance(storage(), LocalStorageAdapter)
+        self.assertIs(storage(), storage())
+
+    def test_a_backend_without_the_port_is_refused(self):
+        plain = {"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+                 "staticfiles": MEMORY_STORAGES["staticfiles"]}
+        with override_settings(STORAGES=plain), self.assertRaises(ImproperlyConfigured):
+            storage()
+
+    def test_the_analyzer_comes_from_the_settings_or_an_extension(self):
+        # Pinned against an empty registry: whether an extension happens to
+        # be installed in the developer's venv must not decide the outcome.
+        with mock.patch.object(plugin_registry, "get_plugins", return_value=()):
+            with override_settings(CV_ANALYZER=None):
+                self.assertIsNone(cv_analyzer())
+            with override_settings(CV_ANALYZER="tracker.tests.FakeAnalyzer"):
+                analyzer = cv_analyzer()
+                self.assertIsInstance(analyzer, FakeAnalyzer)
+                self.assertIs(cv_analyzer(), analyzer)
+            with override_settings(CV_ANALYZER=None):
+                self.assertIsNone(cv_analyzer())
+        with mock.patch.object(plugin_registry, "get_plugins",
+                               return_value=(SimpleNamespace(name="x", cv_analyzer="tracker.tests.FakeAnalyzer"),)):
+            with override_settings(CV_ANALYZER=None):
+                self.assertIsInstance(cv_analyzer(), FakeAnalyzer)
+
+    def test_two_extensions_offering_the_same_service_is_a_configuration_error(self):
+        two = (SimpleNamespace(name="a", cv_analyzer="x.A"), SimpleNamespace(name="b", cv_analyzer="x.B"))
+        with mock.patch.object(plugin_registry, "get_plugins", return_value=two):
+            with self.assertRaises(ImproperlyConfigured):
+                plugin_registry.plugin_attribute("cv_analyzer")
+            self.assertEqual(plugin_registry.plugin_attribute("absent"), "")
+
+
+class StorageCheckTests(SimpleTestCase):
+    def check(self, provider, options, missing=()):
+        storages = {"default": {"BACKEND": "x", "OPTIONS": options}, "staticfiles": MEMORY_STORAGES["staticfiles"]}
+        with override_settings(STORAGE_PROVIDER=provider, STORAGES=storages):
+            with mock.patch("tracker.checks.find_spec", side_effect=lambda name: None if name in missing else object()):
+                return [problem.id for problem in checks.check_storage(None)]
+
+    def test_local_is_silent(self):
+        self.assertEqual(self.check("local", {}), [])
+
+    def test_memory_warns(self):
+        self.assertEqual(self.check("memory", {}), ["tracker.W002"])
+
+    def test_azure_needs_its_driver_and_an_identity_library_without_a_key(self):
+        self.assertEqual(self.check("azure", {"account_key": "k"}), [])
+        self.assertEqual(self.check("azure", {"account_key": "k"}, missing={"azure.storage.blob"}), ["tracker.E002"])
+        self.assertEqual(self.check("azure", {"connection_string": "x"}, missing={"azure.identity"}), [])
+        self.assertEqual(self.check("azure", {"account_url": "https://a"}, missing={"azure.identity"}), ["tracker.E003"])
+        self.assertEqual(self.check("azure", {"account_url": "https://a"}), [])
+
+
+class StorageStatusCommandTests(SimpleTestCase):
+    def test_describes_the_provider_and_probes_it(self):
+        out = io.StringIO()
+        with override_settings(STORAGES=MEMORY_STORAGES, STORAGE_PROVIDER="memory"):
+            call_command("storage_status", stdout=out)
+        text = out.getvalue()
+        self.assertIn("MemoryStorageAdapter", text)
+        self.assertIn("absente, comme prévu", text)
+        self.assertIn("/fichiers/", text)
+        self.assertIn("Stockage : ok", text)
+
+    def test_a_mistyped_container_is_reported(self):
+        from django.core.management.base import CommandError
+
+        service = FakeService(account_key=AZURE_KEY)
+        service.container.missing = True
+        with override_settings(STORAGES=azure_settings(service), STORAGE_PROVIDER="azure"):
+            with self.assertRaises(CommandError):
+                call_command("storage_status", stdout=io.StringIO())
+
+    def test_probe_writes_reads_and_removes(self):
+        out = io.StringIO()
+        with override_settings(STORAGES=MEMORY_STORAGES, STORAGE_PROVIDER="memory"):
+            call_command("storage_status", "--probe", stdout=out)
+            self.assertFalse(storage().file_exists(storage_status.PROBE))
+        self.assertIn("7 octets écrits, relus et supprimés", out.getvalue())
+
+    def test_an_unreachable_provider_is_a_command_error(self):
+        from django.core.management.base import CommandError
+
+        service = FakeService(account_key=AZURE_KEY)
+        service.container.broken = True
+        with override_settings(STORAGES=azure_settings(service), STORAGE_PROVIDER="azure"):
+            with self.assertRaises(CommandError):
+                call_command("storage_status", stdout=io.StringIO())
+
+
 class ArchitectureGuardTests(SimpleTestCase):
     """The layering, enforced by grep so it survives the next refactor."""
 
@@ -2127,20 +3617,82 @@ class ArchitectureGuardTests(SimpleTestCase):
                 with self.subTest(file=name, token=token):
                     self.assertNotIn(token, text)
 
+    def runtime_imports(self, name: str) -> list[str]:
+        """Every module the file really imports when it runs.
+
+        Not a regex: ``^`` misses a function-local import, which runs like
+        any other, and only what sits under ``if TYPE_CHECKING:`` is exempt
+        because it never runs at all.
+        """
+        found: list[str] = []
+
+        def visit(nodes):
+            for node in nodes:
+                if isinstance(node, ast.Import):
+                    found.extend(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                    module = node.module or ""
+                    found.append(module)
+                    found.extend(f"{module}.{alias.name}" for alias in node.names)
+                elif isinstance(node, ast.If) and self.is_type_checking(node.test):
+                    visit(node.orelse)  # the runtime half of the branch only
+                    continue
+                for child in ast.iter_child_nodes(node):
+                    visit([child])
+
+        visit(ast.parse(self.source(name)).body)
+        return found
+
+    @staticmethod
+    def is_type_checking(test: ast.expr) -> bool:
+        return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+            isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+        )
+
+    def test_the_guard_sees_an_import_wherever_it_hides(self):
+        """The guard itself, checked: an indented import runs, and an earlier
+        version of this test compared with ``^`` and passed ``re.MULTILINE``
+        where ``assertNotRegex`` expects a message."""
+        source = (
+            "import os\n"
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from django.db import models\n"
+            "def f():\n"
+            "    from django.db import transaction\n"
+            "    import azure.storage.blob\n"
+        )
+        with mock.patch.object(ArchitectureGuardTests, "source", return_value=source):
+            found = self.runtime_imports("whatever.py")
+        self.assertIn("django.db.transaction", found)
+        self.assertIn("azure.storage.blob", found)
+        self.assertNotIn("django.db.models", found)
+
     def test_services_stay_clear_of_django_plumbing(self):
         forbidden = {
             "services.py": ("django.db", "django.shortcuts", "jobhunt.plugins",
-                            "tracker.queries", "tracker.adapters.django_orm"),
+                            "tracker.queries", "tracker.adapters.django_orm",
+                            "tracker.adapters.file_storage", "tracker.adapters.azure_storage",
+                            "tracker.links", "azure"),
             "domain.py": ("django.db",),
             "adapters/memory.py": ("django.db",),
+            # Pure by design: rules on strings and bytes, no framework at all.
+            "privacy.py": ("django", "azure", "tracker.models"),
+            "adapters/document_text.py": ("django", "azure", "tracker.models"),
+            # The provider lives in its adapter, and nowhere else.
+            "adapters/file_storage.py": ("azure",),
+            "views.py": ("azure", "tracker.adapters.azure_storage", "tracker.adapters.file_storage"),
         }
         for name, modules in forbidden.items():
-            text = self.source(name)
+            imported = self.runtime_imports(name)
             for module in modules:
                 with self.subTest(file=name, module=module):
-                    self.assertNotRegex(
-                        text, rf"^\s*(from|import)\s+{re.escape(module)}\b", re.MULTILINE
-                    )
+                    offenders = [
+                        found
+                        for found in imported
+                        if found == module or found.startswith(f"{module}.")
+                    ]
+                    self.assertEqual(offenders, [], f"{name} importe {module}")
 
 
 def tearDownModule():

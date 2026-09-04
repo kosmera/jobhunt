@@ -6,6 +6,8 @@
 {% endcomment %}
 
 {% block body %}
+  {# htmx garde des instantanés de pages dans localStorage (bouton Retour) : ceux du profil précédent ne doivent pas survivre à l'écran de connexion. #}
+  <script>try { localStorage.removeItem("htmx-history-cache"); } catch (e) {}</script>
   <div class="auth">
     <div class="auth__top">
       <div class="brand__mark">JobHunt<span>·</span></div>

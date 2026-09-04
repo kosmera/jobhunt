@@ -6,17 +6,20 @@ codebase awkward to extend.
 
 Every root row — company, platform, skill gap, application, document — belongs
 to an account (``owner``); events and contacts hang off their application.
-Reading code always starts from ``Model.objects.for_user(user)``.
+Reading code always starts from ``Model.objects.for_user(user)``; on
+PostgreSQL the database enforces the same boundary by itself (``rls``).
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar, Self, TypeVar
 
 from django.conf import settings
-from django.core.exceptions import ObjectDoesNotExist
-from django.db import models
+from django.core.exceptions import ObjectDoesNotExist, SuspiciousFileOperation
+from django.db import models, transaction
 from django.db.models import Case, F, IntegerField, Q, When
 from django.db.models.signals import post_delete
 from django.dispatch import Signal, receiver
@@ -24,15 +27,38 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
 
+if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
+
 #: Sent after an application has been handed to another account, with
 #: ``application`` and ``previous_owner_id``. Extensions that copy the owner
 #: on their own rows listen to it.
 application_owner_changed = Signal()
 
 
-class OwnedQuerySet(models.QuerySet):
-    def for_user(self, user):
+_M = TypeVar("_M", bound=models.Model)
+
+
+class OwnedQuerySet(models.QuerySet[_M]):
+    def for_user(self, user) -> Self:
         return self.filter(owner=user)
+
+
+class OwnedManager(models.Manager[_M]):
+    """Explicit rather than ``OwnedQuerySet.as_manager()``: a type checker
+    without the django-stubs plugin cannot see methods proxied at runtime,
+    so every queryset method the code calls on ``objects`` is spelled out.
+
+    Each ``objects`` declaration carries a targeted Pyright ignore: the stub
+    declares ``Model.objects`` as a mutable class variable, which Pyright
+    treats as invariant, so even a subtype of ``Manager`` is reported.
+    """
+
+    def get_queryset(self) -> OwnedQuerySet[_M]:
+        return OwnedQuerySet(model=self.model, using=self._db)
+
+    def for_user(self, user) -> OwnedQuerySet[_M]:
+        return self.get_queryset().for_user(user)
 
 
 def owner_field(related_name: str) -> models.ForeignKey:
@@ -122,7 +148,7 @@ CLOSED_STATUSES = [
 ]
 
 #: Suggested "next step" for the one-click advance button.
-NEXT_STATUS = {
+NEXT_STATUS: dict[str, str] = {
     Status.BACKLOG: Status.TO_APPLY,
     Status.TO_APPLY: Status.SENT,
     Status.SENT: Status.SCREENING,
@@ -133,7 +159,7 @@ NEXT_STATUS = {
 }
 
 #: Visual family for each status, consumed by the CSS as `.pill--{tone}`.
-STATUS_TONE = {
+STATUS_TONE: dict[str, str] = {
     Status.BACKLOG: "slate",
     Status.TO_APPLY: "amber",
     Status.SENT: "blue",
@@ -184,7 +210,7 @@ class GapStatus(models.TextChoices):
 class Company(models.Model):
     owner = owner_field("companies")
     name = models.CharField("nom", max_length=200)
-    slug = models.SlugField(max_length=220, unique=True, blank=True)
+    slug = models.SlugField(max_length=220, blank=True)
     sector = models.CharField(
         "secteur", max_length=20, choices=Sector.choices, default=Sector.UNKNOWN
     )
@@ -192,7 +218,10 @@ class Company(models.Model):
     location = models.CharField("localisation", max_length=200, blank=True)
     notes = models.TextField("notes", blank=True)
 
-    objects = OwnedQuerySet.as_manager()
+    objects: ClassVar[OwnedManager[Company]] = OwnedManager()  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    if TYPE_CHECKING:
+        owner_id: int
 
     class Meta:
         verbose_name = "société"
@@ -200,6 +229,7 @@ class Company(models.Model):
         ordering = ["name"]
         constraints = [
             models.UniqueConstraint(fields=["owner", "name"], name="company_name_per_owner"),
+            models.UniqueConstraint(fields=["owner", "slug"], name="company_slug_per_owner"),
         ]
 
     def __str__(self) -> str:
@@ -207,7 +237,7 @@ class Company(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = unique_slug(Company, slugify(self.name) or "societe")
+            self.slug = unique_slug(Company, slugify(self.name) or "societe", owner_id=self.owner_id)
         super().save(*args, **kwargs)
 
 
@@ -226,7 +256,10 @@ class Platform(models.Model):
     )
     last_checked = models.DateField("dernière consultation", null=True, blank=True)
 
-    objects = OwnedQuerySet.as_manager()
+    objects: ClassVar[OwnedManager[Platform]] = OwnedManager()  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    if TYPE_CHECKING:
+        owner_id: int
 
     class Meta:
         verbose_name = "plateforme"
@@ -254,7 +287,10 @@ class SkillGap(models.Model):
     )
     position = models.PositiveSmallIntegerField("ordre", default=0)
 
-    objects = OwnedQuerySet.as_manager()
+    objects: ClassVar[OwnedManager[SkillGap]] = OwnedManager()  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    if TYPE_CHECKING:
+        owner_id: int
 
     class Meta:
         verbose_name = "lacune"
@@ -273,7 +309,7 @@ class SkillGap(models.Model):
 # ---------------------------------------------------------------------------
 
 
-class ApplicationQuerySet(OwnedQuerySet):
+class ApplicationQuerySet(OwnedQuerySet["Application"]):
     def open(self):
         return self.filter(status__in=OPEN_STATUSES)
 
@@ -345,6 +381,47 @@ class ApplicationQuerySet(OwnedQuerySet):
         return self.select_related("company", "source_platform", "owner__preferences")
 
 
+class ApplicationManager(OwnedManager["Application"]):
+    def get_queryset(self) -> ApplicationQuerySet:
+        return ApplicationQuerySet(model=self.model, using=self._db)
+
+    def for_user(self, user) -> ApplicationQuerySet:
+        return self.get_queryset().for_user(user)
+
+    def open(self) -> ApplicationQuerySet:
+        return self.get_queryset().open()
+
+    def in_flight(self) -> ApplicationQuerySet:
+        return self.get_queryset().in_flight()
+
+    def interviewing(self) -> ApplicationQuerySet:
+        return self.get_queryset().interviewing()
+
+    def closed(self) -> ApplicationQuerySet:
+        return self.get_queryset().closed()
+
+    def discarded(self) -> ApplicationQuerySet:
+        return self.get_queryset().discarded()
+
+    def active(self) -> ApplicationQuerySet:
+        return self.get_queryset().active()
+
+    def follow_up_due(self, on: dt.date | None = None) -> ApplicationQuerySet:
+        return self.get_queryset().follow_up_due(on)
+
+    def stale(self, days: int, on: dt.date | None = None) -> ApplicationQuerySet:
+        return self.get_queryset().stale(days, on)
+
+    def needs_attention(self, days: int, on: dt.date | None = None) -> ApplicationQuerySet:
+        return self.get_queryset().needs_attention(days, on)
+
+    def by_pipeline_order(self) -> ApplicationQuerySet:
+        return self.get_queryset().by_pipeline_order()
+
+    def with_related(self) -> ApplicationQuerySet:
+        return self.get_queryset().with_related()
+
+
 class Application(models.Model):
     """One job offer being tracked, from triage to outcome."""
 
@@ -353,7 +430,7 @@ class Application(models.Model):
         Company, on_delete=models.PROTECT, related_name="applications", verbose_name="société"
     )
     title = models.CharField("intitulé du poste", max_length=250)
-    slug = models.SlugField(max_length=280, unique=True, blank=True)
+    slug = models.SlugField(max_length=280, blank=True)
 
     location = models.CharField("lieu", max_length=200, blank=True)
     distance_km = models.PositiveSmallIntegerField(
@@ -403,13 +480,26 @@ class Application(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = ApplicationQuerySet.as_manager()
+    objects: ClassVar[ApplicationManager] = ApplicationManager()  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    if TYPE_CHECKING:
+        # What the django-stubs plugin would derive: raw foreign-key columns
+        # and the reverse managers of the satellites.
+        owner_id: int
+        company_id: int
+        source_platform_id: int | None
+        documents: RelatedManager[Document]
+        events: RelatedManager[ActivityEvent]
+        contacts: RelatedManager[Contact]
 
     class Meta:
         verbose_name = "candidature"
         verbose_name_plural = "candidatures"
         ordering = ["-score", "company__name"]
         indexes = [models.Index(fields=["status", "follow_up_on"])]
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "slug"], name="application_slug_per_owner"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.company.name} — {self.title}"
@@ -427,7 +517,7 @@ class Application(models.Model):
             raise ValueError("La société et la candidature n'ont pas le même propriétaire.")
         if not self.slug:
             base = slugify(f"{self.company.name}-{self.title}")[:200] or "candidature"
-            self.slug = unique_slug(Application, base)
+            self.slug = unique_slug(Application, base, owner_id=self.owner_id)
         previous_owner_id = getattr(self, "_loaded_owner_id", None)
         super().save(*args, **kwargs)
         if previous_owner_id is not None and previous_owner_id != self.owner_id:
@@ -479,7 +569,7 @@ class Application(models.Model):
     @property
     def next_status_label(self) -> str | None:
         nxt = self.next_status
-        return Status(nxt).label if nxt else None
+        return str(Status(nxt).label) if nxt else None
 
     # -- timing ------------------------------------------------------------
 
@@ -590,6 +680,8 @@ class ActivityEvent(models.Model):
     application = models.ForeignKey(
         Application, on_delete=models.CASCADE, related_name="events", verbose_name="candidature"
     )
+    if TYPE_CHECKING:
+        application_id: int
     happened_on = models.DateField("date", default=timezone.localdate)
     kind = models.CharField(
         "type", max_length=20, choices=EventKind.choices, default=EventKind.NOTE
@@ -607,9 +699,22 @@ class ActivityEvent(models.Model):
         return f"{self.happened_on} · {self.title}"
 
 
+#: Width of ``Document.file``: the stored name (``upload_to`` path included)
+#: must fit, and the storage port truncates while looking for a free name.
+DOCUMENT_NAME_MAX_LENGTH = 400
+
+
 def document_upload_to(instance: "Document", filename: str) -> str:
-    folder = instance.application.slug if instance.application_id else "bibliotheque"
-    return f"documents/{folder}/{Path(filename).name}"
+    # Slugs are unique per account, not globally: the account id keeps two
+    # accounts' "acme-devops" folders apart on disk. A file saved before the
+    # row (``document.file.save``) takes the account from the application.
+    if instance.application_id:
+        folder = instance.application.slug
+        owner_id = instance.owner_id or instance.application.owner_id
+    else:
+        folder = "bibliotheque"
+        owner_id = instance.owner_id
+    return f"documents/{owner_id}/{folder}/{Path(filename).name}"
 
 
 class Document(models.Model):
@@ -633,15 +738,22 @@ class Document(models.Model):
         "type", max_length=20, choices=DocumentKind.choices, default=DocumentKind.CV
     )
     label = models.CharField("libellé", max_length=250)
-    file = models.FileField("fichier", upload_to=document_upload_to, max_length=400)
+    file = models.FileField("fichier", upload_to=document_upload_to, max_length=DOCUMENT_NAME_MAX_LENGTH)
     language = models.CharField(
         "langue", max_length=2, choices=Language.choices, blank=True
     )
     is_primary = models.BooleanField("document principal", default=False)
     source_path = models.CharField("chemin d'origine", max_length=500, blank=True)
+    # Recorded once at save time: on a remote provider every ``file.size``
+    # is a round-trip, and the library page shows one per row.
+    size_bytes = models.PositiveBigIntegerField("taille (octets)", null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
-    objects = OwnedQuerySet.as_manager()
+    objects: ClassVar[OwnedManager[Document]] = OwnedManager()  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    if TYPE_CHECKING:
+        owner_id: int
+        application_id: int | None
 
     class Meta:
         verbose_name = "document"
@@ -657,6 +769,13 @@ class Document(models.Model):
                 self.owner_id = self.application.owner_id
             elif self.owner_id != self.application.owner_id:
                 raise ValueError("Le document et la candidature n'ont pas le même propriétaire.")
+        if self.size_bytes is None and self.file:
+            # An upload not yet stored knows its size for free; a file the
+            # storage already holds costs one lookup, now rather than per page.
+            try:
+                self.size_bytes = self.file.size
+            except (OSError, ValueError):
+                pass
         super().save(*args, **kwargs)
 
     def get_download_url(self) -> str:
@@ -664,14 +783,16 @@ class Document(models.Model):
 
     @property
     def extension(self) -> str:
-        return Path(self.file.name).suffix.lstrip(".").upper()
+        return Path(self.file.name or "").suffix.lstrip(".").upper()
 
     @property
     def size_display(self) -> str:
-        try:
-            size = self.file.size
-        except (OSError, ValueError):
-            return "—"
+        size: float | None = self.size_bytes
+        if size is None:
+            try:
+                size = self.file.size
+            except (OSError, ValueError):
+                return "—"
         for unit in ("o", "Ko", "Mo"):
             if size < 1024 or unit == "Mo":
                 return f"{size:.0f} {unit}" if unit == "o" else f"{size:.1f} {unit}"
@@ -689,6 +810,8 @@ class Contact(models.Model):
     application = models.ForeignKey(
         Application, on_delete=models.CASCADE, related_name="contacts", verbose_name="candidature"
     )
+    if TYPE_CHECKING:
+        application_id: int
     name = models.CharField("nom", max_length=200)
     role = models.CharField("fonction", max_length=200, blank=True)
     email = models.EmailField("e-mail", blank=True)
@@ -706,10 +829,31 @@ class Contact(models.Model):
 
 
 @receiver(post_delete, sender=Document)
-def delete_file_from_disk(sender, instance: Document, **kwargs):
-    """Keep MEDIA_ROOT in step with the database, cascades included."""
-    if instance.file:
-        instance.file.delete(save=False)
+def delete_file_from_storage(sender, instance: Document, **kwargs):
+    """Keep the storage in step with the database, cascades included.
+
+    Through the configured adapter (disk, Azure…); a provider failure is
+    logged, not raised — the row is already gone."""
+    if not instance.file:
+        return
+    name = instance.file.name or ""
+    storage = instance.file.storage
+
+    def forget():
+        try:
+            # Through the port when the configured backend speaks it: it
+            # already treats a name that is gone, or one no storage would
+            # accept, as nothing to do. ``SuspiciousFileOperation`` is not an
+            # ``OSError``, so a raw ``delete`` could abort the commit hooks.
+            delete = getattr(storage, "delete_file", storage.delete)
+            delete(name)
+        except (OSError, SuspiciousFileOperation):
+            logging.getLogger(__name__).exception("Fichier %s non supprimé du stockage.", name)
+
+    # Only once the deletion is committed: a rollback further up (the whole
+    # request is one transaction on PostgreSQL) would otherwise bring the row
+    # back without its file. Outside a transaction this runs on the spot.
+    transaction.on_commit(forget)
 
 
 # ---------------------------------------------------------------------------
@@ -717,11 +861,16 @@ def delete_file_from_disk(sender, instance: Document, **kwargs):
 # ---------------------------------------------------------------------------
 
 
-def unique_slug(model, base: str) -> str:
-    """Return ``base``, suffixed with a counter if the slug is already taken."""
+def unique_slug(model, base: str, *, owner_id: int | None) -> str:
+    """Return ``base``, suffixed with a counter if the account already uses it.
+
+    Per account, not global: the runtime role only sees the account's own
+    rows (row-level security), so a global check could not be trusted — and
+    the uniqueness constraints are per owner accordingly.
+    """
     base = base[:200] or "item"
     candidate, counter = base, 2
-    while model.objects.filter(slug=candidate).exists():
+    while model.objects.filter(owner_id=owner_id, slug=candidate).exists():
         suffix = f"-{counter}"
         candidate = f"{base[: 200 - len(suffix)]}{suffix}"
         counter += 1

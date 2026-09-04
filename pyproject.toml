@@ -7,17 +7,26 @@ requires-python = ">=3.12"
 dependencies = [
     "django>=6.1,<7",
     "openpyxl>=3.1.5",   # lecture du classeur d'origine (commande import_legacy)
+    "pypdf>=5",          # texte des CV PDF (port de stockage, extract_and_anonymize_text)
+    "python-docx>=1.1",  # texte des CV DOCX
 ]
 
 [project.optional-dependencies]
 postgres = [
     "psycopg[binary,pool]>=3.2",
 ]
+# Fichiers sur Azure Blob Storage (JOBHUNT_STORAGE_PROVIDER=azure) ; ajoute
+# azure-identity pour une identité managée à la place d'une clé de compte.
+azure = [
+    "azure-identity>=1.17",
+    "azure-storage-blob>=12.19",
+]
 
 [dependency-groups]
 dev = [
     "pyflakes>=3.4",     # vérification des imports et variables inutilisés
     "django-stubs>=6.1", # types Django pour Pylance/Pyright (« .objects », QuerySet)
+    "requests>=2.31",    # tests d'intégration du stockage Azure contre l'émulateur Azurite
 ]
 
 [build-system]
@@ -27,9 +36,17 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 # Disposition « à plat » : sans filtre, setuptools prendrait media/, static/,
 # Offres/ et CV_base/ pour des paquets et refuserait de construire.
-include = ["jobhunt*", "accounts*", "tracker*"]
+include = ["jobhunt*", "accounts*", "tracker*", "rls*"]
 
 [tool.uv]
 # Application Django, pas une bibliothèque : « uv sync » n'installe pas le
 # projet lui-même (« uv pip install -e . » reste possible si besoin).
 package = false
+
+[tool.pyright]
+# Résout Django et les types de django-stubs dans le .venv du projet, quel que
+# soit l'interpréteur sur le PATH (Pylance, pyright en ligne de commande).
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+include = ["jobhunt", "accounts", "tracker", "rls", "manage.py"]

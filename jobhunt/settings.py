@@ -11,6 +11,7 @@ from pathlib import Path
 
 from jobhunt.database import auto_migrate_default, conn_max_age_from_env, database_config
 from jobhunt.plugins import plugin_apps
+from jobhunt.storage import PROVIDER_ENV, storage_config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -47,6 +48,9 @@ _secure_cookies = os.environ.get(
 ) == "1"
 SESSION_COOKIE_SECURE = _secure_cookies
 CSRF_COOKIE_SECURE = _secure_cookies
+# An HTMX request with a stale token (a sign-in elsewhere rotated it) gets a
+# 403 that reloads its page instead of a silent failure.
+CSRF_FAILURE_VIEW = "accounts.views.csrf_failure"
 
 INSTALLED_APPS = [
     # Our apps first: Django hands a management command to the first app that
@@ -54,6 +58,7 @@ INSTALLED_APPS = [
     # development), which ``django.contrib.staticfiles`` also overrides.
     "accounts",
     "tracker",
+    "rls",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -73,6 +78,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Binds every request to the signed-in account before anything reads a
+    # protected table (AccountsMiddleware.process_view reads the profile).
+    "rls.middleware.RowLevelSecurityMiddleware",
     "accounts.middleware.AccountsMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -129,6 +137,19 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# --- Files ------------------------------------------------------------------
+# Where uploaded documents live is configuration, like the database engine:
+# ``local`` keeps them under MEDIA_ROOT (a private directory, never mounted
+# by URL), ``azure`` puts them in a Blob Storage container, ``memory`` keeps
+# them in the process. The adapter behind ``Document.file`` is also the
+# ``StoragePort`` of tracker/ports.py; knobs in jobhunt/storage.py and
+# .env.example.
+STORAGE_PROVIDER = os.environ.get(PROVIDER_ENV, "local")
+STORAGES = {
+    "default": storage_config(STORAGE_PROVIDER),
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
 # Uploaded CVs and job postings: 20 MB is generous for a DOCX or PDF.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
@@ -164,6 +185,23 @@ STALE_AFTER_DAYS = int(os.environ.get("JOBHUNT_STALE_AFTER_DAYS", "14"))
 DEFAULT_FOLLOW_UP_DAYS = int(os.environ.get("JOBHUNT_FOLLOW_UP_DAYS", "10"))
 # How far from home an offer is worth a look.
 DEFAULT_SEARCH_RADIUS_KM = int(os.environ.get("JOBHUNT_SEARCH_RADIUS_KM", "40"))
+
+# --- Row-level security -----------------------------------------------------
+# On PostgreSQL every table holding an account's data carries a policy, and
+# the web process connects as a role subject to it (see the README, « Isolation
+# des données »). The role the migrations create and grant:
+RLS_APP_ROLE = os.environ.get("JOBHUNT_DB_APP_ROLE", "jobhunt_app")
+# Refuse to serve when the policies are not in force (role that bypasses
+# them, table without policy): on by default for a shared deployment. Off, a
+# warning is logged once instead — development, and the test suite, whose
+# connection has to be a superuser to create the test database.
+RLS_ENFORCE = (
+    os.environ.get("JOBHUNT_RLS_ENFORCE", "1" if AUTH_MODE == "accounts" and not DEBUG else "0")
+    == "1"
+)
+# On PostgreSQL the test client makes every request as RLS_APP_ROLE, so the
+# page tests exercise the policies; on SQLite the runner is the stock one.
+TEST_RUNNER = "rls.testing.TestRunner"
 
 # --- Persistence ------------------------------------------------------------
 # The adapter behind the ports of ``tracker/ports.py`` (see

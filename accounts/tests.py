@@ -11,7 +11,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -23,7 +23,6 @@ from accounts.services import LOCAL_USERNAME, profile_for, unique_username
 from accounts.testing import OwnedTestCase, make_user
 from tracker.models import Application, Company, Document, DocumentKind, Status
 
-User = get_user_model()
 MEDIA = tempfile.mkdtemp(prefix="jobhunt-accounts-tests-")
 
 
@@ -108,7 +107,7 @@ class LocalModeTests(TestCase):
         marie = make_user("Marie")
         response = self.client.get(reverse("tracker:pipeline"))
         self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse("accounts:login"), response.url)
+        self.assertIn(reverse("accounts:login"), response["Location"])
         chooser = self.client.get(reverse("accounts:login"))
         self.assertContains(chooser, "Lionel")
         self.assertContains(chooser, "Marie")
@@ -188,7 +187,7 @@ class LocalModeTests(TestCase):
         make_user("Lionel")  # not staff
         response = self.client.get(reverse("admin:index"))
         self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse("admin:login"), response.url)
+        self.assertIn(reverse("admin:login"), response["Location"])
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +203,9 @@ class AccountsModeTests(TestCase):
         make_user("Lionel")  # a single account must NOT be signed in automatically
         response = self.client.get(reverse("tracker:pipeline"))
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, f"{reverse('accounts:login')}?next={reverse('tracker:pipeline')}")
+        self.assertEqual(
+            response["Location"], f"{reverse('accounts:login')}?next={reverse('tracker:pipeline')}"
+        )
 
     def test_htmx_anonymous_gets_a_redirect_header_not_a_login_page(self):
         response = self.client.get(
@@ -393,6 +394,15 @@ class SettingsTests(OwnedTestCase):
         self.assertContains(page, "BRAINE · RAYON 40 KM")
         self.assertContains(page, "Lionel D.")
 
+    def test_phone_is_optional_and_kept(self):
+        """Facultatif : le profil s'enregistre sans, et le retient quand il y en a."""
+        self.post("profil", display_name="Lionel", email="", phone="")
+        self.assertEqual(profile_for(self.user).phone, "")
+        self.post("profil", display_name="Lionel", email="", phone=" +32 470 12 34 56 ")
+        self.assertEqual(profile_for(self.user).phone, "+32 470 12 34 56")
+        page = self.client.get(reverse("accounts:settings"))
+        self.assertContains(page, "+32 470 12 34 56")
+
     def test_email_change_keeps_an_email_username_in_step(self):
         user = make_user("Marie", username="marie@example.org", email="marie@example.org")
         self.client.force_login(user)
@@ -473,7 +483,10 @@ class SettingsTests(OwnedTestCase):
         )
         paths = [Path(document.file.path), Path(library.file.path)]
 
-        response = self.post("supprimer", confirm=" lionel ")
+        # The files go with the rows, but only once the deletion is committed
+        # (``tracker.models.delete_file_from_storage``).
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.post("supprimer", confirm=" lionel ")
         self.assertRedirects(response, reverse("accounts:login"), fetch_redirect_response=False)
         self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
         self.assertFalse(Application.objects.filter(owner_id=self.user.pk).exists())
@@ -539,6 +552,21 @@ class CheckTests(TestCase):
         self.assertEqual(ids, ["accounts.W001"])
         with override_settings(AUTH_MODE="local", SECRET_KEY="django-insecure-x"):
             self.assertEqual(checks.check_auth_mode(None), [])
+
+    def test_accounts_mode_behind_tls_needs_an_https_origin(self):
+        secure = dict(AUTH_MODE="accounts", DEBUG=False, SECRET_KEY="k", SECURE_PROXY_SSL_HEADER=None)
+        with override_settings(**secure, CSRF_TRUSTED_ORIGINS=["http://localhost:8000"]):
+            ids = [problem.id for problem in checks.check_tls_origin(None)]
+        self.assertEqual(ids, ["accounts.W002"])
+        with override_settings(**secure, CSRF_TRUSTED_ORIGINS=["https://jobhunt.example"]):
+            self.assertEqual(checks.check_tls_origin(None), [])
+        with override_settings(
+            **{**secure, "SECURE_PROXY_SSL_HEADER": ("HTTP_X_FORWARDED_PROTO", "https")},
+            CSRF_TRUSTED_ORIGINS=["http://localhost:8000"],
+        ):
+            self.assertEqual(checks.check_tls_origin(None), [])
+        with override_settings(**{**secure, "AUTH_MODE": "local"}, CSRF_TRUSTED_ORIGINS=[]):
+            self.assertEqual(checks.check_tls_origin(None), [])
 
 
 class ApplicationStatusSmokeTests(OwnedTestCase):

@@ -78,7 +78,9 @@ class AccountsMiddleware(LoginRequiredMiddleware):
             if response is not None:
                 return response
 
-        if getattr(view_func, "onboarding_required", True) and not request.profile.is_onboarded:
+        # ``profile`` is set on the request by ``process_request`` above.
+        profile = getattr(request, "profile")
+        if getattr(view_func, "onboarding_required", True) and not profile.is_onboarded:
             return self._redirect(request, reverse("accounts:onboarding"))
         return None
 
@@ -106,7 +108,9 @@ class AccountsMiddleware(LoginRequiredMiddleware):
 
     # -- redirects ---------------------------------------------------------
 
-    def handle_no_permission(self, request, view_func):
+    # An HTMX fragment gets a 204 with ``HX-Redirect``, not the redirect
+    # response the base class promises — hence the wider return type.
+    def handle_no_permission(self, request, view_func):  # pyright: ignore[reportIncompatibleMethodOverride]
         if not is_htmx(request):
             return super().handle_no_permission(request, view_func)
         login_url = resolve_url(self.get_login_url(view_func))

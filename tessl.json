@@ -1,0 +1,34 @@
+{
+  "name": "JobHunt",
+  "mode": "vendored",
+  "dependencies": {
+    "abhigyanpatwari/GitNexus": {
+      "version": "94d53eda8e56908d7bb36d60e187de7a52fc8739",
+      "source": "https://github.com/abhigyanpatwari/GitNexus",
+      "include": {
+        "skills": [
+          "gitnexus-cli",
+          "gitnexus-debugging",
+          "gitnexus-exploring",
+          "gitnexus-guide",
+          "gitnexus-impact-analysis"
+        ]
+      }
+    },
+    "multica-ai/andrej-karpathy-skills": {
+      "version": "2c606141936f1eeef17fa3043a72095b4765b9c2",
+      "source": "https://github.com/multica-ai/andrej-karpathy-skills",
+      "include": {
+        "skills": [
+          "karpathy-guidelines"
+        ]
+      }
+    }
+  },
+  "agents": [
+    "claude-code",
+    "codex",
+    "copilot",
+    "copilot-vscode"
+  ]
+}

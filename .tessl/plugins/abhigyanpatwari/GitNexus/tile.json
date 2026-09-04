@@ -1,0 +1,35 @@
+{
+  "name": "abhigyanpatwari/GitNexus",
+  "version": "94d53eda8e56908d7bb36d60e187de7a52fc8739",
+  "summary": "Auto-generated plugin from GitHub (13 skills)",
+  "private": true,
+  "skills": {
+    "gitnexus-cli": {
+      "path": ".claude/skills/gitnexus-cli/SKILL.md"
+    },
+    "gitnexus-debugging": {
+      "path": ".claude/skills/gitnexus-debugging/SKILL.md"
+    },
+    "gitnexus-exploring": {
+      "path": ".claude/skills/gitnexus-exploring/SKILL.md"
+    },
+    "gitnexus-guide": {
+      "path": ".claude/skills/gitnexus-guide/SKILL.md"
+    },
+    "gitnexus-impact-analysis": {
+      "path": ".claude/skills/gitnexus-impact-analysis/SKILL.md"
+    }
+  },
+  "excludes": {
+    "skills": [
+      "gitnexus-lfg",
+      "gitnexus-pdg-query",
+      "gitnexus-plan",
+      "gitnexus-pr-swarm-review",
+      "gitnexus-refactoring",
+      "gitnexus-review",
+      "gitnexus-taint-analysis",
+      "gitnexus-work"
+    ]
+  }
+}

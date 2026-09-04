@@ -1,0 +1,11 @@
+{
+  "name": "multica-ai/andrej-karpathy-skills",
+  "version": "2c606141936f1eeef17fa3043a72095b4765b9c2",
+  "summary": "Auto-generated plugin from GitHub (1 skill)",
+  "private": true,
+  "skills": {
+    "karpathy-guidelines": {
+      "path": "skills/karpathy-guidelines/SKILL.md"
+    }
+  }
+}

@@ -22,19 +22,15 @@ from django.core.exceptions import ObjectDoesNotExist, SuspiciousFileOperation
 from django.db import models, transaction
 from django.db.models import Case, F, IntegerField, Q, When
 from django.db.models.signals import post_delete
-from django.dispatch import Signal, receiver
+from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
 
+from tracker.events import application_owner_changed
+
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
-
-#: Sent after an application has been handed to another account, with
-#: ``application`` and ``previous_owner_id``. Extensions that copy the owner
-#: on their own rows listen to it.
-application_owner_changed = Signal()
-
 
 _M = TypeVar("_M", bound=models.Model)
 

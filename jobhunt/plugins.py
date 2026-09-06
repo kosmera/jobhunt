@@ -9,6 +9,7 @@ désinstaller retire tout.
 Le descripteur est un objet à attributs simples :
 
 - ``app`` : chemin pointé de l'AppConfig, ajouté à ``INSTALLED_APPS`` ;
+- ``required_apps`` : dépendances Django de l'extension, ajoutées avant elle ;
 - ``urls`` / ``url_prefix`` : module d'URLs et préfixe de montage ;
 - ``nav_items`` : liste de tuples ``(route, libellé, icône, clé de badge)`` ;
 - ``nav_badges`` : chemin pointé d'une fonction ``f(request)`` renvoyant
@@ -44,7 +45,11 @@ def get_plugins() -> tuple:
 
 
 def plugin_apps() -> list[str]:
-    return [plugin.app for plugin in get_plugins()]
+    apps = []
+    for plugin in get_plugins():
+        apps.extend(getattr(plugin, "required_apps", ()))
+        apps.append(plugin.app)
+    return list(dict.fromkeys(apps))
 
 
 def plugin_nav_items() -> list[tuple]:
@@ -90,4 +95,3 @@ def plugin_attribute(name: str) -> str:
         names = ", ".join(plugin_name for plugin_name, _ in found)
         raise ImproperlyConfigured(f"Plusieurs extensions définissent « {name} » : {names}.")
     return found[0][1] if found else ""
-

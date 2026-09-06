@@ -1415,9 +1415,10 @@ class PluginFrameworkTests(TestCase):
         self.assertEqual(plugins.get_plugins(), ())
 
     def test_declared_plugin_is_exposed(self):
+        from types import SimpleNamespace
         from unittest import mock
 
-        descriptor = mock.Mock()
+        descriptor = SimpleNamespace()
         descriptor.app = "exemple.apps.ExempleConfig"
         descriptor.nav_items = [("exemple:index", "Exemple", "gauge", None)]
         descriptor.nav_badges = ""
@@ -1430,6 +1431,19 @@ class PluginFrameworkTests(TestCase):
         self.assertEqual(plugins.plugin_apps(), ["exemple.apps.ExempleConfig"])
         self.assertEqual(len(plugins.plugin_nav_items()), 1)
         self.assertEqual(plugins.plugin_templates("icon_templates"), ["exemple/icons.html"])
+
+    def test_plugin_required_apps_are_loaded_once_before_the_plugins(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        entries = []
+        for name in ("one", "two"):
+            entry = mock.Mock()
+            entry.name = name
+            entry.load.return_value = SimpleNamespace(app=name, required_apps=("django_q",))
+            entries.append(entry)
+        plugins = self._with_entry_points(entries)
+        self.assertEqual(plugins.plugin_apps(), ["django_q", "one", "two"])
 
     def test_navigation_pages_render_without_plugins(self):
         """Les pages du cœur ne dépendent d'aucune extension."""
@@ -2844,7 +2858,9 @@ class AzureAdapterTests(SimpleTestCase):
         self.assertEqual(url.count("?"), 1)
         query = {key: values[0] for key, values in parse_qs(urlsplit(url).query).items()}
         self.assertEqual(query["spr"], "https")
-        moment = lambda value: dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        def moment(value):
+            return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+
         self.assertLessEqual(moment(query["skt"]), moment(query["st"]))
         self.assertLessEqual(moment(query["se"]), moment(query["ske"]))
 
@@ -3509,22 +3525,19 @@ class StorageResolverTests(SimpleTestCase):
         with override_settings(STORAGES=plain), self.assertRaises(ImproperlyConfigured):
             storage()
 
-    def test_the_analyzer_comes_from_the_settings_or_an_extension(self):
-        # Pinned against an empty registry: whether an extension happens to
-        # be installed in the developer's venv must not decide the outcome.
-        with mock.patch.object(plugin_registry, "get_plugins", return_value=()):
+    def test_the_analyzer_uses_settings_or_publishes_a_workflow_event(self):
+        from tracker.events import CVEventPublisher, cv_ingested
+
+        with mock.patch.object(cv_ingested, "has_listeners", return_value=False):
             with override_settings(CV_ANALYZER=None):
                 self.assertIsNone(cv_analyzer())
             with override_settings(CV_ANALYZER="tracker.tests.FakeAnalyzer"):
                 analyzer = cv_analyzer()
                 self.assertIsInstance(analyzer, FakeAnalyzer)
                 self.assertIs(cv_analyzer(), analyzer)
+        with mock.patch.object(cv_ingested, "has_listeners", return_value=True):
             with override_settings(CV_ANALYZER=None):
-                self.assertIsNone(cv_analyzer())
-        with mock.patch.object(plugin_registry, "get_plugins",
-                               return_value=(SimpleNamespace(name="x", cv_analyzer="tracker.tests.FakeAnalyzer"),)):
-            with override_settings(CV_ANALYZER=None):
-                self.assertIsInstance(cv_analyzer(), FakeAnalyzer)
+                self.assertIsInstance(cv_analyzer(), CVEventPublisher)
 
     def test_two_extensions_offering_the_same_service_is_a_configuration_error(self):
         two = (SimpleNamespace(name="a", cv_analyzer="x.A"), SimpleNamespace(name="b", cv_analyzer="x.B"))

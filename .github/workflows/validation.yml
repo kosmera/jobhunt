@@ -1,0 +1,85 @@
+name: Validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  JOBHUNT_AUTO_MIGRATE: "0"
+  JOBHUNT_DEBUG: "1"
+  JOBHUNT_AUTH_MODE: local
+
+jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.15"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install core dependencies
+        run: uv sync --locked --all-extras
+      - name: Ruff
+        run: uvx --from ruff==0.16.2 ruff check --output-format github jobhunt accounts tracker rls manage.py
+      - name: Pyright (core without AI)
+        # The optional host adapter is type-checked with the AI package in its CI.
+        run: uvx --from pyright==1.1.410 pyright --project .github/pyright-core.json
+
+  tests:
+    name: Tests (${{ matrix.database }}, without AI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgresql]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: jobhunt
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jobhunt"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JOBHUNT_DATABASE_URL: ${{ matrix.database == 'postgresql' && 'postgresql://postgres:postgres@localhost:5432/jobhunt' || 'sqlite:///:memory:' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.15"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install core dependencies
+        run: uv sync --locked --all-extras
+      - name: Verify AI is not installed
+        run: uv run --no-sync python -c "from importlib.util import find_spec; assert find_spec('jobhunt_ai') is None"
+      - name: Django system checks
+        run: uv run --no-sync python manage.py check
+      - name: Check for missing migrations
+        run: uv run --no-sync python manage.py makemigrations --check --dry-run
+      - name: Run core tests
+        run: uv run --no-sync python manage.py test accounts tracker jobhunt rls --noinput

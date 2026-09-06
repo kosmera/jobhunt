@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from django.apps import apps
 from django.conf import settings
 
 from rls import registry, sql
@@ -189,12 +190,18 @@ def inspect(connection) -> Report:
             [grantee, grantee, grantee, grantee],
         )
         registered = {t.table for t in report.tables}
+        # Exemptions declared by installed extensions must apply at runtime
+        # as well as in the model checks (e.g. shared task-queue tables).
+        allowed = set(sql.UNPROTECTED_ALLOWED) | {
+            model._meta.db_table for model in apps.get_models(include_auto_created=True)
+            if registry.is_exempt(model)
+        }
         for relname, rls_on, owns, readable, writable in cursor.fetchall():
             if owns:
                 report.owned_any.append(relname)
             if relname in sql.BOOKKEEPING_TABLES and writable:
                 report.writable_bookkeeping.append(relname)
-            if not rls_on and readable and relname not in registered and relname not in sql.UNPROTECTED_ALLOWED:
+            if not rls_on and readable and relname not in registered and relname not in allowed:
                 report.unprotected.append(relname)
     return report
 

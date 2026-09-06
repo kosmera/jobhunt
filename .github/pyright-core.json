@@ -1,0 +1,5 @@
+{
+    "extends": "../pyproject.toml",
+    "extraPaths": [".."],
+    "exclude": ["../jobhunt/ai_integration.py"]
+}

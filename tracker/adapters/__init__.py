@@ -12,9 +12,9 @@ served by the ORM adapter and chosen through ``JOBHUNT_DATABASE_URL``.
 already keeps one instance per process and forgets it when the setting is
 overridden in a test.
 
-``cv_analyzer()`` is the AI layer, if any: ``settings.CV_ANALYZER`` (tests)
-or the ``cv_analyzer`` attribute of an installed extension, a dotted path
-to a class taking no argument; ``None`` when nobody analyses CVs.
+``cv_analyzer()`` uses an explicit ``settings.CV_ANALYZER`` override or
+publishes the host-owned ``cv_ingested`` workflow event. The default knows
+no AI implementation and is absent when there are no subscribers.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from django.core.signals import setting_changed
 from django.dispatch import receiver
 from django.utils.module_loading import import_string
 
-from jobhunt.plugins import plugin_attribute
+from tracker.events import CVEventPublisher, cv_ingested
 from tracker.ports import CVAnalyzer, Persistence, StoragePort
 
 DEFAULT_ADAPTER = "tracker.adapters.django_orm.DjangoPersistence"
@@ -71,8 +71,10 @@ def storage() -> StoragePort:
 def cv_analyzer() -> CVAnalyzer | None:
     global _analyzer, _analyzer_resolved
     if not _analyzer_resolved:
-        path = getattr(settings, "CV_ANALYZER", None) or plugin_attribute("cv_analyzer")
-        _analyzer = import_string(path)() if path else None
+        path = getattr(settings, "CV_ANALYZER", None)
+        _analyzer = import_string(path)() if path else (
+            CVEventPublisher() if cv_ingested.has_listeners() else None
+        )
         _analyzer_resolved = True
     return _analyzer
 

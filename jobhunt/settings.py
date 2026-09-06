@@ -72,6 +72,76 @@ INSTALLED_APPS = [
 # découvertes par point d'entrée, jamais listées en dur ici.
 INSTALLED_APPS += plugin_apps()
 
+# The host owns every mapping to its models, events, and infrastructure.
+# Secrets stay in host configuration; the reusable package reads only
+# namespaced Django settings. Legacy environment names remain accepted here.
+JOBHUNT_AI_APPLICATION_MODEL = "tracker.Application"
+JOBHUNT_AI_DOCUMENT_MODEL = "tracker.Document"
+JOBHUNT_AI_HOST_BACKEND = "jobhunt.ai_integration.JobHuntBackend"
+JOBHUNT_AI_API_KEY = os.environ.get(
+    "JOBHUNT_AI_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")
+)
+JOBHUNT_AI_CV_INGESTED_SIGNAL = "tracker.events.cv_ingested"
+JOBHUNT_AI_APPLICATION_OWNER_CHANGED_SIGNAL = "tracker.events.application_owner_changed"
+JOBHUNT_AI_BASE_TEMPLATE = "base.html"
+JOBHUNT_AI_MIGRATION_DEPENDENCIES = [
+    ("tracker", "0004_owner_required"),
+    ("accounts", "0001_initial"),
+]
+JOBHUNT_AI_ORPHAN_OWNER_RESOLVER = "jobhunt.ai_integration.attach_legacy_owners"
+JOBHUNT_AI_RLS_OPERATION = "rls.operations.EnableRowLevelSecurity"
+JOBHUNT_AI_RLS_MIGRATION_DEPENDENCIES = [("rls", "0001_initial")]
+
+# Preserve existing deployment knobs, converting environment strings here.
+for _ai_name in (
+    "MODEL", "LICENSE_KEY", "LOCATION", "BRIGHTDATA_MCP_URL",
+):
+    if f"JOBHUNT_AI_{_ai_name}" in os.environ:
+        globals()[f"JOBHUNT_AI_{_ai_name}"] = os.environ[f"JOBHUNT_AI_{_ai_name}"]
+for _ai_name in (
+    "MAX_TOKENS", "QUEUE_TTL", "WORKER_GRACE", "LLM_MAX_RETRIES",
+    "SCRAPE_TIMEOUT", "ANALYZE_TIMEOUT", "RADIUS_KM", "SCOUT_MAX_QUERIES",
+    "SCOUT_MAX_PAGES", "SCOUT_PAGE_CHARS",
+):
+    if f"JOBHUNT_AI_{_ai_name}" in os.environ:
+        globals()[f"JOBHUNT_AI_{_ai_name}"] = int(os.environ[f"JOBHUNT_AI_{_ai_name}"])
+for _ai_name in ("LLM_TIMEOUT", "BRIGHTDATA_TIMEOUT"):
+    if f"JOBHUNT_AI_{_ai_name}" in os.environ:
+        globals()[f"JOBHUNT_AI_{_ai_name}"] = float(os.environ[f"JOBHUNT_AI_{_ai_name}"])
+for _ai_name in ("EAGER", "BRIGHTDATA_FALLBACK"):
+    if f"JOBHUNT_AI_{_ai_name}" in os.environ:
+        globals()[f"JOBHUNT_AI_{_ai_name}"] = os.environ[f"JOBHUNT_AI_{_ai_name}"] == "1"
+JOBHUNT_AI_BRIGHTDATA_API_TOKEN = os.environ.get(
+    "JOBHUNT_AI_BRIGHTDATA_API_TOKEN", os.environ.get("BRIGHTDATA_API_TOKEN", "")
+)
+if os.environ.get("JOBHUNT_AI_SCOUT_SOURCES"):
+    import json
+
+    JOBHUNT_AI_SCOUT_SOURCES = json.loads(os.environ["JOBHUNT_AI_SCOUT_SOURCES"])
+
+# Durable tasks: the extension declares django_q as a required app. Keeping
+# the ORM broker on the same database makes job + message creation atomic.
+_q_workers = int(os.environ.get("JOBHUNT_Q_WORKERS", "2"))
+_q_timeout = int(os.environ.get("JOBHUNT_Q_TIMEOUT", "1800"))
+Q_CLUSTER = {
+    "name": "jobhunt-ai",
+    "orm": "default",
+    "workers": _q_workers,
+    "timeout": _q_timeout,
+    # Receipts include time waiting in the worker's local queue. Allow for
+    # two waiting batches, not just the currently executing task.
+    "retry": int(os.environ.get("JOBHUNT_Q_RETRY", str(3 * _q_timeout + 120))),
+    "queue_limit": _q_workers,
+    "bulk": 1,
+    "poll": 1,
+    "recycle": 50,
+    "ack_failures": True,
+    "max_attempts": 1,
+    "save_limit": 250,
+    "sync": False,
+    "scheduler": False,
+}
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",

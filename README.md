@@ -528,6 +528,9 @@ posées par le superutilisateur. Les tests propres aux politiques
 
 ## Tests
 
+Le [pipeline GitHub de validation](docs/ci.md) lance Ruff, Pyright et les tests
+sur SQLite et PostgreSQL, avec une installation du cœur sans le module IA.
+
 ```bash
 uv run manage.py test accounts tracker jobhunt rls
 uv run pyflakes jobhunt accounts tracker rls
@@ -599,13 +602,19 @@ disque, pas chez Azure, et un `document.file.save(...)` se fait hors
 transaction — un envoi réseau ne se tient pas au milieu d'une transaction
 PostgreSQL. Pour recevoir le texte anonymisé d'un CV téléversé, l'extension
 déclare `cv_analyzer` sur son descripteur (voir « Stockage des fichiers »).
+Elle peut aussi déclarer `required_apps` : ces dépendances Django sont
+chargées avant elle, une seule fois même si plusieurs extensions les utilisent.
 
 C'est le mécanisme qu'utilise le copilote IA (extension propriétaire,
-développée hors de ce dépôt) :
+développée hors de ce dépôt). Ces commandes chargent les variables de `.env`
+(à créer si nécessaire), que Django ne charge pas automatiquement :
 
 ```bash
 uv pip install -e ../JobHunt-AI
-uv run --no-sync manage.py runserver   # applique les migrations de l'extension
+uv run --env-file .env --no-sync manage.py migrate
+uv run --env-file .env --no-sync manage.py runserver
+# Dans un autre terminal, même environnement :
+uv run --env-file .env --no-sync manage.py qcluster
 ```
 
 `uv sync` réaligne strictement `.venv` sur `uv.lock` et retire donc les
@@ -613,6 +622,14 @@ extensions installées à la main — d'où le `--no-sync` ci-dessus (déjà en
 place dans `.claude/launch.json`) ; réinstalle l'extension après un `sync`.
 Hors `runserver` (production, `JOBHUNT_AUTO_MIGRATE=0`), lance
 `manage.py migrate` après l'installation.
+
+Le copilote utilise Django-Q2 : le serveur web met les agents en file, le
+processus `qcluster` les exécute. Les variables `JOBHUNT_Q_WORKERS` (2),
+`JOBHUNT_Q_TIMEOUT` (1800 s) et `JOBHUNT_Q_RETRY` (5520 s) configurent la file
+ORM sur la base `default`. En production, supervise le worker et exécute
+`manage.py reconcile_ai_runs` chaque minute pour clôturer les tâches expirées.
+Le guide `docs/async-tasks.md` de l'extension contient le contrat API et les
+modèles de services de production.
 
 ## Architecture : ports et adaptateurs
 

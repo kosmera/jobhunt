@@ -8,6 +8,8 @@ middleware tests run on any engine.
 from __future__ import annotations
 
 import io
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock, skipUnless
 
@@ -28,6 +30,7 @@ from django.test import (
     override_settings,
 )
 from django.urls import reverse
+from openpyxl import Workbook
 
 from accounts.models import Preferences, Profile
 from accounts.testing import make_user
@@ -509,6 +512,14 @@ class PolicyTests(TestCase):
         self.assertNotIn("django_session", report.unprotected)
         self.assertEqual(report.writable_bookkeeping, [])
 
+        probe = SimpleNamespace(_meta=SimpleNamespace(
+            label="rls.Probe", db_table="rls_probe_unprotected",
+        ))
+        with mock.patch("rls.verify.apps.get_models", return_value=[probe]), mock.patch.object(
+            registry, "_exempt", registry._exempt | {"rls.probe"},
+        ):
+            self.assertNotIn("rls_probe_unprotected", verify.inspect(connection).unprotected)
+
     def test_rows_for_another_account_are_refused(self):
         with app_role(), context.as_user(self.alice):
             with self.assertRaises(DatabaseError), transaction.atomic():
@@ -690,17 +701,27 @@ class CommandTests(AppRoleTestCase, TestCase):
         cls.alice = make_user("Alice", username="alice")
 
     def test_legacy_import_writes_on_the_owners_behalf(self):
-        call_command(
-            "import_legacy",
-            workbook=str(settings.LEGACY_WORKBOOK),
-            root=str(settings.LEGACY_ROOT),
-            skip_files=True,
-            user="alice",
-            stdout=io.StringIO(),
-        )
+        # CI has no private legacy files; exercise the real importer with a
+        # minimal workbook while still enforcing the runtime role's policies.
+        with TemporaryDirectory(prefix="jobhunt-rls-import-") as directory:
+            workbook_path = Path(directory) / "applications.xlsx"
+            workbook = Workbook()
+            sheet = workbook.create_sheet("Candidatures")
+            sheet.append(["Société", "Intitulé du poste"])
+            sheet.append(["Example", "Engineer"])
+            workbook.save(workbook_path)
+            workbook.close()
+            call_command(
+                "import_legacy",
+                workbook=str(workbook_path),
+                root=directory,
+                skip_files=True,
+                user="alice",
+                stdout=io.StringIO(),
+            )
         self.assertEqual(Application.objects.count(), 0)  # unbound: nothing visible
         with context.as_user(self.alice):
-            self.assertGreater(Application.objects.count(), 0)
+            self.assertEqual(Application.objects.get().title, "Engineer")
 
 
 @skipUnless(POSTGRES, "row-level security only exists on PostgreSQL")

@@ -8,7 +8,8 @@ No AI package, AI credentials, or repository secrets are required.
 
 - **Lint and types:** Ruff checks Python syntax, imports, unused code, and
   basic correctness (`E4`, `E7`, `E9`, `F`). Pyright checks the core with
-  `.github/pyright-core.json`.
+  `.github/pyright-core.json`. CI runs the same pre-commit configuration as Git,
+  including configuration-file validation and Django startup/migration checks.
 - **Tests (sqlite, without AI):** installs only the core and its optional
   PostgreSQL/Azure dependencies, verifies that `jobhunt_ai` cannot be imported,
   runs Django system and migration-drift checks, then runs all core test apps.
@@ -27,6 +28,40 @@ is needed by this workflow. The pipelines never use personal documents or
 production databases.
 
 ## Run locally
+
+### Install Git hooks
+
+After preparing the existing `.venv`, install the hooks once per clone:
+
+```bash
+uv tool install pre-commit==4.6.2
+uvx --from pre-commit==4.6.2 pre-commit install
+uvx --from pre-commit==4.6.2 pre-commit run --all-files
+```
+
+`.pre-commit-config.yaml` installs both commit and push hooks. Commits check
+staged files for merge conflicts, malformed YAML/TOML/JSON, Ruff diagnostics,
+Pyright errors, Django startup errors, and missing migrations. Before a push,
+the same checks run along with the full core SQLite suite. To run that gate
+manually:
+
+```bash
+uvx --from pre-commit==4.6.2 pre-commit run --all-files --hook-stage pre-push
+```
+
+Whole-project type and Django checks always run, including commits that only
+delete files, so removing an imported module cannot skip validation.
+
+`scripts/validate.py` uses the existing interpreter directly. It never syncs
+dependencies, and replaces deployment database/storage settings and AI keys
+with local test settings. An installed AI extension stays installed; a core-only
+environment remains supported. PostgreSQL/RLS coverage stays in CI. Missing
+dependencies fail the hook; prepare the environment using the commands below.
+
+Git does not install hooks when cloning. Every contributor needs the install
+step; CI also enforces these checks when local hooks are absent.
+
+### Prepare a core-only environment
 
 Use a clean checkout or a separate virtual environment for the core-only run:
 `uv sync` removes packages that are not in the core lockfile, including an

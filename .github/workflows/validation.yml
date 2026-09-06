@@ -34,11 +34,8 @@ jobs:
           enable-cache: true
       - name: Install core dependencies
         run: uv sync --locked --all-extras
-      - name: Ruff
-        run: uvx --from ruff==0.16.2 ruff check --output-format github jobhunt accounts tracker rls manage.py
-      - name: Pyright (core without AI)
-        # The optional host adapter is type-checked with the AI package in its CI.
-        run: uvx --from pyright==1.1.410 pyright --project .github/pyright-core.json
+      - name: Run pre-commit checks
+        run: uvx --from pre-commit==4.6.2 pre-commit run --all-files
 
   tests:
     name: Tests (${{ matrix.database }}, without AI)

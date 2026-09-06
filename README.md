@@ -530,6 +530,9 @@ posées par le superutilisateur. Les tests propres aux politiques
 
 Le [pipeline GitHub de validation](docs/ci.md) lance Ruff, Pyright et les tests
 sur SQLite et PostgreSQL, avec une installation du cœur sans le module IA.
+Les [hooks Git](docs/ci.md#install-git-hooks) bloquent les commits invalides et
+lancent les tests SQLite avant chaque push. Le guide indique la commande
+d'installation à exécuter une fois par clone.
 
 ```bash
 uv run manage.py test accounts tracker jobhunt rls

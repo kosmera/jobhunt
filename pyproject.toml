@@ -49,7 +49,7 @@ package = false
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
-include = ["jobhunt", "accounts", "tracker", "rls", "manage.py"]
+include = ["jobhunt", "accounts", "tracker", "rls", "scripts", "manage.py"]
 
 [tool.ruff]
 target-version = "py312"

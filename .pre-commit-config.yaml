@@ -1,0 +1,39 @@
+minimum_pre_commit_version: "3.2.0"
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit, pre-push]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+
+  - repo: local
+    hooks:
+      - id: ruff
+        name: Ruff
+        entry: uvx --from ruff==0.16.2 ruff check
+        language: system
+        types_or: [python, pyi]
+      - id: pyright
+        name: Pyright (core)
+        entry: uvx --from pyright==1.1.410 pyright --project .github/pyright-core.json
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: django-checks
+        name: Django checks and missing migrations
+        entry: .venv/bin/python scripts/validate.py checks
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: django-tests
+        name: Core tests (SQLite)
+        entry: .venv/bin/python scripts/validate.py tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

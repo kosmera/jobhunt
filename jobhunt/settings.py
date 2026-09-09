@@ -48,6 +48,12 @@ _secure_cookies = os.environ.get(
 ) == "1"
 SESSION_COOKIE_SECURE = _secure_cookies
 CSRF_COOKIE_SECURE = _secure_cookies
+# Behind a TLS-terminating proxy (Cloudflare, Azure App Service) the request
+# reaches Django as plain HTTP: without this it builds ``http://`` URLs and
+# thinks a Secure cookie can never be sent. Only safe because the proxy always
+# overwrites the header — never set it for a server reachable directly.
+if os.environ.get("JOBHUNT_BEHIND_PROXY", "0") == "1":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # An HTMX request with a stale token (a sign-in elsewhere rotated it) gets a
 # 403 that reloads its page instead of a silent failure.
 CSRF_FAILURE_VIEW = "accounts.views.csrf_failure"
@@ -230,6 +236,27 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DATE_INPUT_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"]
 
 MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
+
+# --- Email ------------------------------------------------------------------
+# Password resets in accounts mode, and the relance reminders, are the only
+# things that send. Development prints to the console rather than needing a
+# relay; a deployment sets the credentials and gets SMTP.
+_email_host = os.environ.get("JOBHUNT_EMAIL_HOST", "")
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if _email_host
+    else "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = _email_host
+EMAIL_PORT = int(os.environ.get("JOBHUNT_EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("JOBHUNT_EMAIL_TLS", "1") == "1"
+EMAIL_HOST_USER = os.environ.get("JOBHUNT_EMAIL_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("JOBHUNT_EMAIL_PASSWORD", "")
+EMAIL_TIMEOUT = int(os.environ.get("JOBHUNT_EMAIL_TIMEOUT", "10"))
+# The From: domain has to be the one DKIM-signed by the sender, or the message
+# fails DMARC alignment and lands in spam.
+DEFAULT_FROM_EMAIL = os.environ.get("JOBHUNT_FROM_EMAIL", "TonJobIdeal <bonjour@tonjobideal.com>")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # --- JobHunt-specific knobs -------------------------------------------------
 # ``runserver`` applies pending migrations itself before serving (and after

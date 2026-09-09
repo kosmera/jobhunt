@@ -21,6 +21,14 @@ azure = [
     "azure-identity>=1.17",
     "azure-storage-blob>=12.19",
 ]
+# Service web. Rien de tout ça ne sert en local : « runserver » est son propre
+# serveur et sert les statiques lui-même tant que DEBUG est vrai. En production
+# gunicorn porte l'application, et whitenoise sert /static/ — App Service ne met
+# aucun serveur de fichiers devant Django.
+deploy = [
+    "gunicorn>=23",
+    "whitenoise>=6.7",
+]
 
 [dependency-groups]
 dev = [

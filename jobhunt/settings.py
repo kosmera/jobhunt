@@ -226,6 +226,27 @@ STORAGES = {
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
+# Deployed, nothing sits in front of gunicorn to serve ``/static/``: whitenoise
+# does it, from the directory ``collectstatic`` filled, with hashed names so the
+# files can be cached forever. Development needs none of it — ``runserver``
+# serves the same files itself — which is why the ``deploy`` extra that provides
+# whitenoise is optional and this block is skipped when DEBUG is on.
+if not DEBUG:
+    # Not the position whitenoise documents (straight after SecurityMiddleware):
+    # ``rls.E002`` allows only Django's own middleware before
+    # RowLevelSecurityMiddleware, since anything earlier runs its request and
+    # response halves outside the transaction that announces the account. So
+    # whitenoise goes immediately *after* it — the earliest legal slot. Static
+    # requests therefore pay for the RLS transaction, which is the price of the
+    # invariant holding for every request without exception.
+    MIDDLEWARE.insert(
+        MIDDLEWARE.index("rls.middleware.RowLevelSecurityMiddleware") + 1,
+        "whitenoise.middleware.WhiteNoiseMiddleware",
+    )
+    STORAGES["staticfiles"] = {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    }
+
 # Uploaded CVs and job postings: 20 MB is generous for a DOCX or PDF.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
@@ -236,6 +257,34 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DATE_INPUT_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"]
 
 MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
+
+# --- Logging ----------------------------------------------------------------
+# Django's default configuration routes request errors to ``mail_admins`` and
+# filters them out of the console whenever DEBUG is off. With no ADMINS set that
+# means a 500 in production leaves no trace anywhere. The host captures stdout,
+# so send them there instead — a deployed traceback is worth more than an email
+# nobody configured.
+if not DEBUG:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "console": {"format": "[{levelname}] {name}: {message}", "style": "{"},
+        },
+        "handlers": {
+            "console": {"class": "logging.StreamHandler", "formatter": "console"},
+        },
+        "root": {"handlers": ["console"], "level": "INFO"},
+        "loggers": {
+            # propagate=False: without it every request error is printed twice,
+            # once here and once by the root logger.
+            "django.request": {
+                "handlers": ["console"],
+                "level": "ERROR",
+                "propagate": False,
+            },
+        },
+    }
 
 # --- Email ------------------------------------------------------------------
 # Password resets in accounts mode, and the relance reminders, are the only

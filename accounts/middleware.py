@@ -31,7 +31,9 @@ from django.utils.functional import SimpleLazyObject
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from accounts import conf
-from accounts.services import preferences_for, profile_for, sign_in_without_password
+from accounts.services import (
+    ensure_local_admin, preferences_for, profile_for, sign_in_without_password,
+)
 
 
 def onboarding_not_required(view_func):
@@ -64,10 +66,21 @@ def _lazy_preferences(request):
 
 class AccountsMiddleware(LoginRequiredMiddleware):
     def process_request(self, request):
+        ensure_local_admin(request.user)
         request.profile = SimpleLazyObject(lambda: _lazy_profile(request))
         request.preferences = SimpleLazyObject(lambda: _lazy_preferences(request))
 
     def process_view(self, request, view_func, view_args, view_kwargs):
+        # Django's admin login opts out of the account gate. In local mode,
+        # use the same passwordless entry/chooser as the rest of the app.
+        match = request.resolver_match
+        if (
+            conf.is_local() and not request.user.is_authenticated
+            and match and match.app_name == "admin" and match.url_name == "login"
+        ):
+            response = self._local_entry(request, view_func)
+            if response is not None:
+                return response
         if not getattr(view_func, "login_required", True):
             return None
 

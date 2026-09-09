@@ -183,11 +183,13 @@ class LocalModeTests(TestCase):
         response = self.client.get(reverse("accounts:onboarding"))
         self.assertRedirects(response, reverse("tracker:dashboard"))
 
-    def test_admin_keeps_its_own_gate(self):
-        make_user("Lionel")  # not staff
+    def test_first_local_profile_can_open_admin_without_a_password(self):
+        user = make_user("Lionel")
         response = self.client.get(reverse("admin:index"))
-        self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse("admin:login"), response["Location"])
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +243,8 @@ class AccountsModeTests(TestCase):
         self.assertEqual(user.username, "lionel@example.org")
         self.assertEqual(user.email, "lionel@example.org")
         self.assertTrue(user.check_password(self.PASSWORD))
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
         self.assertTrue(profile_for(user).is_onboarded)
         self.assertEqual(self.client.get(reverse("tracker:dashboard")).wsgi_request.user, user)
 

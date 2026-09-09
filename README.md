@@ -39,8 +39,16 @@ déploiement. L'automatisme ne s'applique qu'à une base locale : un
 [Base de données](#base-de-données)) ne génère ni n'applique rien de
 lui-même — `JOBHUNT_AUTO_MIGRATE=1` pour le forcer en connaissance de cause.
 
-Pour l'administration Django (`/admin`, édition brute des tables), il faut un
-compte avec le drapeau *staff* :
+En mode `local`, le premier profil est automatiquement administrateur de
+l'installation : ouvre **Données brutes** dans la barre latérale ou `/admin/`,
+sans créer un second compte ni saisir de mot de passe. Une session existante
+(comme le profil historique `local`) est mise à niveau à la prochaine requête.
+Les profils supplémentaires restent des utilisateurs ordinaires. Ce rôle
+n'active aucune extension payante ; la date Premium est en lecture seule
+dans l'administration locale.
+
+Pour une instance auto-hébergée avec connexion par mot de passe
+(`JOBHUNT_AUTH_MODE=accounts`), crée explicitement l'administrateur :
 
 ```bash
 uv run manage.py createsuperuser
@@ -127,7 +135,8 @@ d'entrer, choisies par `JOBHUNT_AUTH_MODE` :
 
 La migration qui a introduit les comptes rattache tout ce qui existait déjà à
 un profil : le seul compte présent s'il y en a un, sinon un compte `local`
-sans mot de passe créé pour l'occasion. À la visite suivante, la page
+sans mot de passe créé pour l'occasion. En mode local, le premier compte
+reçoit aussi l'accès administrateur. À la visite suivante, la page
 Bienvenue annonce combien de candidatures attendent et complète ce compte —
 rien n'est à ressaisir.
 
@@ -625,6 +634,21 @@ extensions installées à la main — d'où le `--no-sync` ci-dessus (déjà en
 place dans `.claude/launch.json`) ; réinstalle l'extension après un `sync`.
 Hors `runserver` (production, `JOBHUNT_AUTO_MIGRATE=0`), lance
 `manage.py migrate` après l'installation.
+
+L'accès au copilote dépend du compte : `accounts.Profile.premium_until` doit
+être une date future et le compte doit être actif. Aucune clé d'activation
+n'est demandée aux utilisateurs, et `DEBUG` ne donne pas accès. En attendant
+Stripe, un administrateur du service en mode `accounts` peut renseigner la fin
+de période payée dans **Administration → Profils → Premium jusqu'au**.
+Cette date est en lecture seule dans l'administration locale. Le futur backend de
+paiement maintiendra cette date ; Stripe n'est pas encore intégré. Les comptes
+existants restent gratuits par défaut. Applique les migrations du cœur avant
+le redémarrage.
+
+Les clés du fournisseur IA sont des secrets d'exploitation côté serveur.
+Elles ne sont requises qu'au moment des appels IA, sans bloquer le démarrage
+Django ni déterminer l'accès Premium. Les comptes gratuits peuvent continuer
+à déposer leurs CV sans déclencher d'analyse payante.
 
 Le copilote utilise Django-Q2 : le serveur web met les agents en file, le
 processus `qcluster` les exécute. Les variables `JOBHUNT_Q_WORKERS` (2),

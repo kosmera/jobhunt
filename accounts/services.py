@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.text import slugify
 
+from accounts import conf
 from accounts.models import Preferences, Profile
 from rls import as_user
 
@@ -41,6 +42,47 @@ def profile_for(user) -> Profile:
 def preferences_for(user) -> Preferences:
     preferences, _ = Preferences.objects.get_or_create(user=user)
     return preferences
+
+
+def has_premium(user) -> bool:
+    """Read the current paid entitlement; never trust a cached profile or form.
+
+    Billing will maintain premium_until after confirmed payments. Until then,
+    service administrators in accounts mode can manage it on the profile.
+    No billing I/O occurs here; missing or expired entitlement denies access.
+    """
+    if not user or not user.is_authenticated or not user.pk:
+        return False
+    return Profile.objects.filter(
+        user_id=user.pk, user__is_active=True, premium_until__gt=timezone.now()
+    ).exists()
+
+
+def ensure_local_admin(user) -> None:
+    """The first account owns a trusted local installation.
+
+    Repair older installations on sign-in or an existing session. Additional
+    profiles and accounts-mode users are never automatically promoted. Only
+    Django administration flags change; paid entitlement stays independent.
+    """
+    if (
+        not conf.is_local() or not user or not user.is_authenticated
+        or not user.is_active or not user.pk
+        or (user.is_staff and user.is_superuser)
+    ):
+        return
+    User = get_user_model()
+    # auth.User is visible across accounts only while unbound. Restore the
+    # caller's tenant afterwards; administrator status does not bypass RLS.
+    with as_user(None):
+        owner_id = User.objects.order_by("pk").values_list("pk", flat=True).first()
+        if owner_id != user.pk:
+            return
+        promoted = User.objects.filter(pk=user.pk, is_active=True).update(
+            is_staff=True, is_superuser=True
+        )
+    if promoted:
+        user.is_staff = user.is_superuser = True
 
 
 def unique_username(base: str) -> str:

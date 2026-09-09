@@ -60,6 +60,10 @@ class Profile(models.Model):
         "et l'anonymisation le masque partout ailleurs.",
     )
     onboarded_at = models.DateTimeField("profil complété le", null=True, blank=True)
+    premium_until = models.DateTimeField(
+        "premium jusqu'au", null=True, blank=True,
+        help_text="Fin de la période payée. Sans date ou après expiration, le compte est gratuit.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -8,11 +8,19 @@ them: they create the rows on demand for users that bypassed the signal
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.signals import user_logged_in
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from accounts.models import Preferences, Profile
+from accounts.services import ensure_local_admin
 from rls import as_user
+
+
+@receiver(user_logged_in, dispatch_uid="accounts.local_admin")
+def provision_local_admin(sender, user, **kwargs):
+    """Local sign-in establishes installation ownership before serving pages."""
+    ensure_local_admin(user)
 
 
 @receiver(post_save, sender=get_user_model(), dispatch_uid="accounts.create_profile_rows")

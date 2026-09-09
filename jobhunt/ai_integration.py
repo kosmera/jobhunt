@@ -10,7 +10,7 @@ import rls
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from accounts.services import preferences_for, profile_for
+from accounts.services import has_premium, preferences_for, profile_for
 from jobhunt_ai.backends import (
     ApplicationData,
     CVSubmission,
@@ -37,6 +37,9 @@ from tracker.models import (
 
 class JobHuntBackend(HostBackend):
     """Preserve existing JobHunt behavior behind an explicit host boundary."""
+
+    def has_copilot_access(self, user):
+        return has_premium(user)
 
     def ready(self):
         from jobhunt_ai.signals import cv_generated, match_completed

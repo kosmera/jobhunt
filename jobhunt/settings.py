@@ -84,6 +84,8 @@ INSTALLED_APPS += plugin_apps()
 JOBHUNT_AI_APPLICATION_MODEL = "tracker.Application"
 JOBHUNT_AI_DOCUMENT_MODEL = "tracker.Document"
 JOBHUNT_AI_HOST_BACKEND = "jobhunt.ai_integration.JobHuntBackend"
+# Operator-owned provider credential, unrelated to a user's premium access.
+# Optional at startup; only AI execution requires a configured provider.
 JOBHUNT_AI_API_KEY = os.environ.get(
     "JOBHUNT_AI_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")
 )
@@ -100,7 +102,7 @@ JOBHUNT_AI_RLS_MIGRATION_DEPENDENCIES = [("rls", "0001_initial")]
 
 # Preserve existing deployment knobs, converting environment strings here.
 for _ai_name in (
-    "MODEL", "LICENSE_KEY", "LOCATION", "BRIGHTDATA_MCP_URL",
+    "MODEL", "LOCATION", "BRIGHTDATA_MCP_URL",
 ):
     if f"JOBHUNT_AI_{_ai_name}" in os.environ:
         globals()[f"JOBHUNT_AI_{_ai_name}"] = os.environ[f"JOBHUNT_AI_{_ai_name}"]

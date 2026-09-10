@@ -1,0 +1,69 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% block title %}Ton CV — JobHunt{% endblock %}
+{% block step %}
+  {% if card and not replacing %}
+    <form method="post" class="onb__form" novalidate>
+      {% csrf_token %}
+      <h1 class="onb__title">Ton CV est rangé.</h1>
+      <div class="result-card">
+        <div class="result-card__row t-green">
+          <svg aria-hidden="true"><use href="#i-check"></use></svg>
+          <span><strong>CV enregistré</strong> — {{ card.document.label }} · {{ card.document.extension }} · {{ card.document.size_display }}</span>
+        </div>
+        {% if card.text_chars %}
+          <div class="result-card__row t-green"><svg aria-hidden="true"><use href="#i-check"></use></svg><span>Texte lisible : {{ card.text_chars }} caractères</span></div>
+        {% elif ai_plugin %}
+          <div class="result-card__row t-amber"><svg aria-hidden="true"><use href="#i-file"></use></svg><span>Aucun texte lisible (un scan ?) — le fichier est gardé tel quel</span></div>
+        {% endif %}
+        {% if card.redactions %}
+          <div class="result-card__row t-green"><svg aria-hidden="true"><use href="#i-check"></use></svg><span>Données personnelles masquées avant toute analyse : {{ card.redactions }}</span></div>
+        {% endif %}
+        <div class="result-card__row {% if card.status == 'analyzed' %}t-green{% else %}t-slate{% endif %}">
+          <svg aria-hidden="true"><use href="#i-send"></use></svg>
+          <span>
+            {% if card.status == "analyzed" %}Transmis au copilote, anonymisé — son analyse apparaîtra dans Documents.
+            {% elif card.status == "no_plugin" %}Aucune extension installée : rien n'a quitté ta bibliothèque.
+            {% elif card.status == "not_analyzed" %}L'extension n'a pas pu l'analyser — le fichier est gardé quand même.
+            {% else %}Trop court ou illisible pour être analysé — gardé quand même.{% endif %}
+          </span>
+        </div>
+      </div>
+      <div class="onb__actions">
+        <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">Continuer</button>
+        <a class="btn btn--ghost btn--block" href="?remplacer=1">Remplacer ce fichier</a>
+      </div>
+    </form>
+  {% else %}
+    <form method="post" enctype="multipart/form-data" class="onb__form" novalidate data-upload-form data-requires-choice>
+      {% csrf_token %}
+      {% if replacing %}<input type="hidden" name="replacing" value="{{ card.document.pk }}">{% endif %}
+      <fieldset class="onb__fieldset">
+        <span class="pill dropzone__badge">Recommandé · Sert de base à chaque candidature</span>
+        <legend class="onb__title">{{ step.title }}</legend>
+        <p class="onb__lede">{{ step.lede }}</p>
+        {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+        <label class="dropzone" data-dropzone>
+          <svg class="dropzone__icon" aria-hidden="true"><use href="#i-download"></use></svg>
+          <span class="dropzone__title">Glisse ton CV ici</span>
+          <span class="dropzone__or">ou</span>
+          <span class="btn btn--primary dropzone__button">Choisir un fichier</span>
+          {{ form.file }}
+          <span class="dropzone__file" hidden></span>
+        </label>
+        {% for error in form.file.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+        {% include "tracker/partials/field.html" with field=form.language %}
+        <div class="upload-bar" hidden><span class="upload-bar__fill"></span></div>
+        <p class="upload-bar__text" hidden>Envoi du fichier…</p>
+      </fieldset>
+      <div class="onb__actions">
+        <button type="submit" name="action" value="upload" class="btn btn--primary btn--block">Envoyer</button>
+        {% if replacing %}
+          <a class="btn btn--ghost btn--block" href="{{ request.path }}">Garder le CV actuel</a>
+        {% else %}
+          <button type="submit" name="action" value="skip" class="btn btn--ghost btn--block" formnovalidate>Passer pour l'instant</button>
+        {% endif %}
+        <p class="onb__note">{{ step.note }}</p>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

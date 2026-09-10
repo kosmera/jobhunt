@@ -4,7 +4,7 @@
   when there is someone to switch to.
 {% endcomment %}
 <div class="user-chip">
-  <a class="user-chip__link{% if page == 'settings' %} is-active{% endif %}" href="{% url 'accounts:settings' %}" title="Réglages">
+  <a class="user-chip__link{% if page == 'settings' %} is-active{% endif %}" href="{% url 'accounts:settings' %}" title="Réglages" aria-label="Réglages du profil">
     <span class="avatar">{{ request.profile.initials }}</span>
     <span class="user-chip__body">
       <span class="user-chip__name">{{ request.profile.display_name|default:user.get_username }}</span>

@@ -1,0 +1,19 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% comment %}
+  A screen with nothing to answer: an illustration, a title, a few lines, one
+  button. Each interstitial fills the blocks; the copy lives with it.
+{% endcomment %}
+{% block step %}
+  <form method="post" class="onb__form onb__form--interstitial" novalidate>
+    {% csrf_token %}
+    <div class="onb__illustration">{% block illustration %}{% endblock %}</div>
+    <div class="onb__intro">
+      <h1 class="onb__title">{% block heading %}{{ step.title }}{% endblock %}</h1>
+      <div class="onb__lede">{% block body %}{% endblock %}</div>
+    </div>
+    <div class="onb__actions">
+      <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">{% block button %}Continuer{% endblock %}</button>
+      {% block foot %}{% endblock %}
+    </div>
+  </form>
+{% endblock %}

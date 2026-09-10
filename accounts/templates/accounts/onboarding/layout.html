@@ -1,0 +1,70 @@
+{% load static %}<!doctype html>
+<html lang="fr">
+<head>
+  {% comment %}
+    The questionnaire's own document: no rail, no top bar, no quick-add dialog.
+    Same head as base.html (theme before first paint, local fonts, app.css, the
+    favicon) plus onboarding.css; the two sprites the screens reference.
+  {% endcomment %}
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#153f36">
+  <title>{% block title %}{{ step.title|default:"Bienvenue" }} — JobHunt{% endblock %}</title>
+  <script src="{% static 'js/theme-init.js' %}"></script>
+  <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/archivo-var.woff2' %}" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/newsreader-var.woff2' %}" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/newsreader-italic-var.woff2' %}" crossorigin>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <link rel="stylesheet" href="{% static 'css/onboarding.css' %}">
+  <link rel="icon" href="{% static 'images/landing-mark.svg' %}" type="image/svg+xml">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Aller au contenu</a>
+  {% include "tracker/partials/icons.html" %}
+  {% include "accounts/onboarding/partials/sector_icons.html" %}
+  {# htmx garde des instantanés de pages dans localStorage (bouton Retour) : ceux du profil précédent ne doivent pas survivre à l'entrée. #}
+  <script>try { localStorage.removeItem("htmx-history-cache"); } catch (e) {}</script>
+
+  <div class="onb">
+    <header class="onb__top">
+      {% if back_url %}
+        <a class="icon-btn onb__back" href="{{ back_url }}" aria-label="Revenir à l'étape précédente">
+          <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+        </a>
+      {% else %}
+        <span class="onb__back onb__back--none" aria-hidden="true"></span>
+      {% endif %}
+      {% include "tracker/partials/brand.html" %}
+      <div class="onb__side">
+        <button type="button" class="icon-btn" data-theme-toggle aria-label="Changer de thème">
+          <svg data-theme-icon="sun" aria-hidden="true"><use href="#i-sun"></use></svg>
+          <svg data-theme-icon="moon" aria-hidden="true"><use href="#i-moon"></use></svg>
+        </button>
+        {% if n %}<span class="pill onb__counter" aria-hidden="true">{{ n }}/{{ total }}</span>{% endif %}
+      </div>
+    </header>
+    {% if n %}
+      <div class="onb__progress" role="progressbar" aria-label="Progression" aria-valuemin="0" aria-valuemax="{{ total }}" aria-valuenow="{{ n }}" aria-valuetext="Étape {{ n }} sur {{ total }}" style="--onb-progress: {{ n }} / {{ total }}">
+        <span class="onb__bar"></span>
+      </div>
+    {% endif %}
+
+    <main id="main-content" class="onb__main" tabindex="-1">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="flash {% if message.level_tag == 'error' %}t-red{% elif message.level_tag == 'warning' %}t-amber{% elif message.level_tag == 'info' %}t-blue{% else %}t-green{% endif %}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+      {% block step %}{% endblock %}
+    </main>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+  <script src="{% static 'js/app.js' %}" defer></script>
+  <script src="{% static 'js/fields.js' %}" defer></script>
+  <script src="{% static 'js/onboarding.js' %}" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

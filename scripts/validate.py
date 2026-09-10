@@ -14,7 +14,7 @@ def main() -> None:
     parser.add_argument("mode", choices=("checks", "tests"))
     mode = parser.parse_args().mode
     # Hooks must never use a developer's database, storage credentials, or API
-    # keys. Dummy AI settings also support an optional, already-installed plugin.
+    # keys. The optional AI plugin must also start without provider credentials.
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -27,8 +27,6 @@ def main() -> None:
         JOBHUNT_AUTO_MIGRATE="0",
         JOBHUNT_DEBUG="1",
         JOBHUNT_AUTH_MODE="local",
-        JOBHUNT_AI_API_KEY="hook-placeholder-never-sent",
-        JOBHUNT_AI_LICENSE_KEY="hook-test-license",
     )
     commands = (
         [["check"], ["makemigrations", "--check", "--dry-run"]]

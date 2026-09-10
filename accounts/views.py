@@ -1,6 +1,9 @@
-"""Onboarding, sign-in, sign-up, sign-out and the settings page."""
+"""Sign-in, sign-up, sign-out and the settings page. The questionnaire that
+follows sign-up (and greets a local machine) lives in ``accounts.onboarding``."""
 
 from __future__ import annotations
+
+from typing import Any
 
 from django.conf import settings
 from django.contrib import auth, messages
@@ -17,18 +20,20 @@ from accounts import conf
 from accounts.forms import (
     DeleteAccountForm,
     LoginForm,
-    OnboardingForm,
     PreferencesForm,
     ProfileForm,
+    SearchProfileForm,
     SignupForm,
     password_form,
 )
-from accounts.middleware import is_htmx, local_auto_sign_in, onboarding_not_required
+from accounts.middleware import is_htmx, onboarding_not_required
+from accounts.onboarding import data as suggestions
+from accounts.onboarding.flow import salary_periods, salary_unit
 from accounts.services import (
     LOCAL_BACKEND,
-    create_local_user,
     delete_account,
     profile_for,
+    search_profile_or_blank,
     sign_in_without_password,
 )
 from rls import as_user
@@ -42,53 +47,6 @@ def safe_next(request) -> str:
     ):
         return candidate
     return ""
-
-
-def waiting_counts(user) -> dict:
-    """What an account already owns — shown to whoever inherits imported data."""
-    from tracker.models import Application, Document
-
-    return {
-        "applications": Application.objects.filter(owner=user).count(),
-        "documents": Document.objects.filter(owner=user).count(),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Entry points
-# ---------------------------------------------------------------------------
-
-
-@login_not_required
-@onboarding_not_required
-@require_http_methods(["GET", "POST"])
-def onboarding(request):
-    user = request.user if request.user.is_authenticated else None
-    if user is None and conf.is_local() and local_auto_sign_in(request):
-        user = request.user
-    if user is not None and profile_for(user).is_onboarded:
-        return redirect("tracker:dashboard")
-    if user is None and not conf.is_local():
-        return redirect("accounts:signup")
-
-    form = OnboardingForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        if user is None:
-            user = create_local_user(form.cleaned_data["display_name"])
-            sign_in_without_password(request, user)
-        profile = form.apply(user)
-        messages.success(request, f"Bienvenue, {profile.display_name}. Le suivi est à toi.")
-        return redirect("tracker:dashboard")
-
-    return render(
-        request,
-        "accounts/onboarding.html",
-        {
-            "form": form,
-            "waiting": waiting_counts(user) if user is not None else None,
-            "account": user,
-        },
-    )
 
 
 @login_not_required
@@ -159,8 +117,9 @@ def signup(request):
     if request.method == "POST" and form.is_valid():
         user = form.save()
         auth.login(request, user, backend=LOCAL_BACKEND)
-        messages.success(request, f"Bienvenue, {request.profile.display_name}. Le suivi est à toi.")
-        return redirect(settings.LOGIN_REDIRECT_URL)
+        # The account exists and is named; the questionnaire fills the rest and
+        # opens the dashboard with the welcome flash.
+        return redirect("accounts:onboarding")
     return render(request, "accounts/signup.html", {"form": form})
 
 
@@ -190,7 +149,7 @@ def csrf_failure(request, reason: str = ""):
 # Settings
 # ---------------------------------------------------------------------------
 
-SECTIONS = ("profil", "preferences", "mot-de-passe", "supprimer")
+SECTIONS = ("profil", "recherche", "preferences", "mot-de-passe", "supprimer")
 
 
 @require_http_methods(["GET", "POST"])
@@ -202,8 +161,10 @@ def settings_view(request, section: str | None = None):
 
     profile = request.profile
     preferences = request.preferences
+    search = search_profile_or_blank(request.user)
     forms = {
         "profile": ProfileForm(instance=profile),
+        "search": SearchProfileForm(instance=search),
         "preferences": PreferencesForm(instance=preferences),
         "password": password_form(request.user),
         "delete": DeleteAccountForm(expected=profile.display_name),
@@ -216,6 +177,12 @@ def settings_view(request, section: str | None = None):
             if form.is_valid():
                 form.save()
                 messages.success(request, "Profil enregistré.")
+                return redirect("accounts:settings")
+        elif section == "recherche":
+            form = forms["search"] = SearchProfileForm(request.POST, instance=search)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Recherche enregistrée.")
                 return redirect("accounts:settings")
         elif section == "preferences":
             form = forms["preferences"] = PreferencesForm(request.POST, instance=preferences)
@@ -244,6 +211,9 @@ def settings_view(request, section: str | None = None):
         {
             "page": "settings",
             "profile_form": forms["profile"],
+            "search_form": forms["search"],
+            "search": _search_context(forms["search"]),
+            "search_known": search.pk is not None,
             "preferences_form": forms["preferences"],
             "password_form": forms["password"],
             "delete_form": forms["delete"],
@@ -251,3 +221,14 @@ def settings_view(request, section: str | None = None):
             "is_local": conf.is_local(),
         },
     )
+
+
+def _search_context(form: SearchProfileForm) -> dict[str, Any]:
+    """What the chips and the salary toggle of the search section need, beyond the form."""
+    return {
+        "titles_suggestions": list(suggestions.JOB_TITLES),
+        "recommended": suggestions.related_titles(form.titles),
+        "cities_suggestions": [[name, province] for name, province in suggestions.CITIES],
+        "periods": salary_periods(),
+        "unit": salary_unit(form["salary_period"].value() or ""),
+    }

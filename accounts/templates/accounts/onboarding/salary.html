@@ -1,0 +1,33 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% block step %}
+  <form method="post" class="onb__form" novalidate data-salary>
+    {% csrf_token %}
+    <fieldset class="onb__fieldset">
+      <legend class="onb__title">{{ step.title }}</legend>
+      {% if step.lede %}<p class="onb__lede">{{ step.lede }}</p>{% endif %}
+      {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+      {% with period=form.salary_period.value %}
+        <div class="segmented" role="radiogroup" aria-label="Période">
+          {% for item in periods %}
+            <label class="segmented__item">
+              <input class="visually-hidden" type="radio" name="salary_period" value="{{ item.value }}" {% if item.value == period %}checked{% endif %}
+                     data-min="{{ item.min }}" data-max="{{ item.max }}" data-step="{{ item.step }}" data-ceiling="{{ item.ceiling }}" data-unit="{{ item.unit }}">
+              <span>{{ item.label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="field">
+          <label class="field__label" for="{{ form.salary_min.id_for_label }}">{{ form.salary_min.label }}</label>
+          <div class="salary__amount">
+            {{ form.salary_min }}
+            <span class="salary__unit" data-salary-unit>{{ unit }}</span>
+          </div>
+          <input type="range" class="salary__range" hidden>
+          {% for error in form.salary_period.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+          {% for error in form.salary_min.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+        </div>
+      {% endwith %}
+    </fieldset>
+    {% include "accounts/onboarding/partials/actions.html" with skip_label="Je préfère ne pas dire" %}
+  </form>
+{% endblock %}

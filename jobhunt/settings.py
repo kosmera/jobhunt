@@ -48,6 +48,12 @@ _secure_cookies = os.environ.get(
 ) == "1"
 SESSION_COOKIE_SECURE = _secure_cookies
 CSRF_COOKIE_SECURE = _secure_cookies
+# Behind a TLS-terminating proxy (Cloudflare, Azure App Service) the request
+# reaches Django as plain HTTP: without this it builds ``http://`` URLs and
+# thinks a Secure cookie can never be sent. Only safe because the proxy always
+# overwrites the header — never set it for a server reachable directly.
+if os.environ.get("JOBHUNT_BEHIND_PROXY", "0") == "1":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # An HTMX request with a stale token (a sign-in elsewhere rotated it) gets a
 # 403 that reloads its page instead of a silent failure.
 CSRF_FAILURE_VIEW = "accounts.views.csrf_failure"
@@ -78,6 +84,8 @@ INSTALLED_APPS += plugin_apps()
 JOBHUNT_AI_APPLICATION_MODEL = "tracker.Application"
 JOBHUNT_AI_DOCUMENT_MODEL = "tracker.Document"
 JOBHUNT_AI_HOST_BACKEND = "jobhunt.ai_integration.JobHuntBackend"
+# Operator-owned provider credential, unrelated to a user's premium access.
+# Optional at startup; only AI execution requires a configured provider.
 JOBHUNT_AI_API_KEY = os.environ.get(
     "JOBHUNT_AI_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")
 )
@@ -94,7 +102,7 @@ JOBHUNT_AI_RLS_MIGRATION_DEPENDENCIES = [("rls", "0001_initial")]
 
 # Preserve existing deployment knobs, converting environment strings here.
 for _ai_name in (
-    "MODEL", "LICENSE_KEY", "LOCATION", "BRIGHTDATA_MCP_URL",
+    "MODEL", "LOCATION", "BRIGHTDATA_MCP_URL",
 ):
     if f"JOBHUNT_AI_{_ai_name}" in os.environ:
         globals()[f"JOBHUNT_AI_{_ai_name}"] = os.environ[f"JOBHUNT_AI_{_ai_name}"]
@@ -220,6 +228,27 @@ STORAGES = {
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
+# Deployed, nothing sits in front of gunicorn to serve ``/static/``: whitenoise
+# does it, from the directory ``collectstatic`` filled, with hashed names so the
+# files can be cached forever. Development needs none of it — ``runserver``
+# serves the same files itself — which is why the ``deploy`` extra that provides
+# whitenoise is optional and this block is skipped when DEBUG is on.
+if not DEBUG:
+    # Not the position whitenoise documents (straight after SecurityMiddleware):
+    # ``rls.E002`` allows only Django's own middleware before
+    # RowLevelSecurityMiddleware, since anything earlier runs its request and
+    # response halves outside the transaction that announces the account. So
+    # whitenoise goes immediately *after* it — the earliest legal slot. Static
+    # requests therefore pay for the RLS transaction, which is the price of the
+    # invariant holding for every request without exception.
+    MIDDLEWARE.insert(
+        MIDDLEWARE.index("rls.middleware.RowLevelSecurityMiddleware") + 1,
+        "whitenoise.middleware.WhiteNoiseMiddleware",
+    )
+    STORAGES["staticfiles"] = {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    }
+
 # Uploaded CVs and job postings: 20 MB is generous for a DOCX or PDF.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
@@ -230,6 +259,55 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DATE_INPUT_FORMATS = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"]
 
 MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
+
+# --- Logging ----------------------------------------------------------------
+# Django's default configuration routes request errors to ``mail_admins`` and
+# filters them out of the console whenever DEBUG is off. With no ADMINS set that
+# means a 500 in production leaves no trace anywhere. The host captures stdout,
+# so send them there instead — a deployed traceback is worth more than an email
+# nobody configured.
+if not DEBUG:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "console": {"format": "[{levelname}] {name}: {message}", "style": "{"},
+        },
+        "handlers": {
+            "console": {"class": "logging.StreamHandler", "formatter": "console"},
+        },
+        "root": {"handlers": ["console"], "level": "INFO"},
+        "loggers": {
+            # propagate=False: without it every request error is printed twice,
+            # once here and once by the root logger.
+            "django.request": {
+                "handlers": ["console"],
+                "level": "ERROR",
+                "propagate": False,
+            },
+        },
+    }
+
+# --- Email ------------------------------------------------------------------
+# Password resets in accounts mode, and the relance reminders, are the only
+# things that send. Development prints to the console rather than needing a
+# relay; a deployment sets the credentials and gets SMTP.
+_email_host = os.environ.get("JOBHUNT_EMAIL_HOST", "")
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if _email_host
+    else "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = _email_host
+EMAIL_PORT = int(os.environ.get("JOBHUNT_EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("JOBHUNT_EMAIL_TLS", "1") == "1"
+EMAIL_HOST_USER = os.environ.get("JOBHUNT_EMAIL_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("JOBHUNT_EMAIL_PASSWORD", "")
+EMAIL_TIMEOUT = int(os.environ.get("JOBHUNT_EMAIL_TIMEOUT", "10"))
+# The From: domain has to be the one DKIM-signed by the sender, or the message
+# fails DMARC alignment and lands in spam.
+DEFAULT_FROM_EMAIL = os.environ.get("JOBHUNT_FROM_EMAIL", "TonJobIdeal <bonjour@tonjobideal.com>")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # --- JobHunt-specific knobs -------------------------------------------------
 # ``runserver`` applies pending migrations itself before serving (and after

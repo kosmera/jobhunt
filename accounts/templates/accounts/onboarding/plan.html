@@ -1,0 +1,25 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% block step %}
+  <form method="post" class="onb__form" novalidate>
+    {% csrf_token %}
+    <span class="eyebrow onb__eyebrow">Et maintenant</span>
+    <h1 class="onb__title">{{ step.title }}</h1>
+    <ol class="plan">
+      {% for row in rows %}
+        <li class="plan__row">
+          <span class="plan__when eyebrow">{{ row.when }}</span>
+          <span class="plan__text">{{ row.text }}</span>
+        </li>
+      {% endfor %}
+    </ol>
+    <div class="cost">
+      {% if cost %}
+        <p>Chaque semaine sans poste, c'est environ <strong>{{ cost }}</strong> de salaire brut qui passent — calculé sur le minimum que tu as indiqué, et une bonne raison de ne pas laisser traîner une relance.</p>
+      {% endif %}
+      <p class="onb__note">Une lettre de motivation, c'est en général 15 à 30 minutes ; une candidature complète, 5 à 10. Une relance oubliée, c'est une offre qui refroidit.</p>
+    </div>
+    <div class="onb__actions">
+      <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">Ouvrir mon espace</button>
+    </div>
+  </form>
+{% endblock %}

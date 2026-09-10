@@ -1,0 +1,7 @@
+<div class="onb__actions">
+  <button type="submit" name="action" value="continue" class="btn btn--primary btn--block"{% if skip_swap and step.skippable %} data-skip-label="{{ skip_label }}"{% endif %}>{{ continue_label }}</button>
+  {% if step.skippable and skip_label %}
+    <button type="submit" name="action" value="skip" class="btn btn--ghost btn--block" formnovalidate>{{ skip_label }}</button>
+  {% endif %}
+  {% if step.note %}<p class="onb__note">{{ step.note }}</p>{% endif %}
+</div>

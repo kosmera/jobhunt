@@ -1,0 +1,14 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% block step %}
+  <form method="post" class="onb__form" novalidate>
+    {% csrf_token %}
+    <fieldset class="onb__fieldset">
+      <legend class="onb__title">{{ step.title }}</legend>
+      {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+      {% include "accounts/partials/chips_field.html" with field=form.cities_text picked=picked name="cities" %}
+      {% include "tracker/partials/field.html" with field=form.search_radius_km %}
+      {{ suggestions|json_script:"cities-suggestions" }}
+    </fieldset>
+    {% include "accounts/onboarding/partials/actions.html" with skip_label="Passer" %}
+  </form>
+{% endblock %}

@@ -18,8 +18,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts import checks, conf
-from accounts.models import Preferences, Profile
-from accounts.services import LOCAL_USERNAME, profile_for, unique_username
+from accounts.models import Preferences, Profile, SearchProfile
+from accounts.onboarding.testing import all_answers, walk
+from accounts.services import LOCAL_USERNAME, finish_onboarding, profile_for, unique_username
 from accounts.testing import OwnedTestCase, make_user
 from tracker.models import Application, Company, Document, DocumentKind, Status
 
@@ -41,17 +42,19 @@ class LocalModeTests(TestCase):
     def test_first_visit_lands_on_onboarding(self):
         response = self.client.get(reverse("tracker:dashboard"))
         self.assertRedirects(response, reverse("accounts:onboarding"), fetch_redirect_response=False)
-        self.assertEqual(self.client.get(reverse("accounts:onboarding")).status_code, 200)
+        first_step = "/bienvenue/situation/"
+        self.assertRedirects(self.client.get(reverse("accounts:onboarding")), first_step)
+        self.assertEqual(self.client.get(first_step).status_code, 200)
 
     def test_onboarding_creates_a_password_less_profile_and_signs_in(self):
-        response = self.client.post(
-            reverse("accounts:onboarding"),
-            {"display_name": "Lionel", "headline": "DevOps", "location": "Nivelles"},
-        )
-        self.assertRedirects(response, reverse("tracker:dashboard"))
+        # The account appears at the identity step, the profile is completed at the end.
+        walk(self.client, until="cv")
         user = User.objects.get()
         self.assertFalse(user.has_usable_password())
         self.assertEqual(user.username, "lionel")
+        self.assertFalse(profile_for(user).is_onboarded)
+        response = walk(self.client)
+        self.assertRedirects(response, reverse("tracker:dashboard"), fetch_redirect_response=False)
         profile = Profile.objects.get(user=user)
         self.assertEqual((profile.display_name, profile.location), ("Lionel", "Nivelles"))
         self.assertTrue(profile.is_onboarded)
@@ -62,7 +65,8 @@ class LocalModeTests(TestCase):
         self.assertContains(dashboard, "NIVELLES · RAYON 40 KM")
 
     def test_onboarding_requires_a_name(self):
-        response = self.client.post(reverse("accounts:onboarding"), {"display_name": "   "})
+        walk(self.client, until="identite")
+        response = self.client.post("/bienvenue/identite/", {"display_name": "   "})
         self.assertEqual(response.status_code, 200)
         self.assertFalse(User.objects.exists())
 
@@ -84,12 +88,13 @@ class LocalModeTests(TestCase):
 
         response = self.client.get(reverse("tracker:dashboard"))
         self.assertRedirects(response, reverse("accounts:onboarding"), fetch_redirect_response=False)
-        page = self.client.get(reverse("accounts:onboarding"))
+        self.assertRedirects(self.client.get(reverse("accounts:onboarding")), "/bienvenue/reprise/")
+        page = self.client.get("/bienvenue/reprise/")
         self.assertContains(page, "2 candidatures t'attendent")
-        self.assertContains(page, "rattaché à ce profil.")
+        self.assertContains(page, "rattaché à ce profil")
 
-        response = self.client.post(reverse("accounts:onboarding"), {"display_name": "Lionel"})
-        self.assertRedirects(response, reverse("tracker:dashboard"))
+        response = walk(self.client)
+        self.assertRedirects(response, reverse("tracker:dashboard"), fetch_redirect_response=False)
         self.assertEqual(User.objects.count(), 1)
         profile = Profile.objects.get(user=placeholder)
         self.assertTrue(profile.is_onboarded)
@@ -98,7 +103,7 @@ class LocalModeTests(TestCase):
 
     def test_visiting_onboarding_directly_also_claims_the_single_account(self):
         placeholder = User.objects.create_user(username=LOCAL_USERNAME, password=None)
-        self.client.post(reverse("accounts:onboarding"), {"display_name": "Lionel"})
+        walk(self.client)
         self.assertEqual(User.objects.count(), 1)
         self.assertTrue(profile_for(placeholder).is_onboarded)
 
@@ -183,11 +188,13 @@ class LocalModeTests(TestCase):
         response = self.client.get(reverse("accounts:onboarding"))
         self.assertRedirects(response, reverse("tracker:dashboard"))
 
-    def test_admin_keeps_its_own_gate(self):
-        make_user("Lionel")  # not staff
+    def test_first_local_profile_can_open_admin_without_a_password(self):
+        user = make_user("Lionel")
         response = self.client.get(reverse("admin:index"))
-        self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse("admin:login"), response["Location"])
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +233,7 @@ class AccountsModeTests(TestCase):
         )
         self.assertEqual(response.headers["HX-Redirect"], reverse("accounts:login"))
 
-    def test_signup_creates_an_onboarded_account_and_signs_in(self):
+    def test_signup_creates_an_account_and_enters_onboarding(self):
         response = self.client.post(
             reverse("accounts:signup"),
             {
@@ -236,13 +243,18 @@ class AccountsModeTests(TestCase):
                 "password2": self.PASSWORD,
             },
         )
-        self.assertRedirects(response, reverse("tracker:dashboard"))
+        self.assertRedirects(response, reverse("accounts:onboarding"), fetch_redirect_response=False)
         user = User.objects.get()
         self.assertEqual(user.username, "lionel@example.org")
         self.assertEqual(user.email, "lionel@example.org")
         self.assertTrue(user.check_password(self.PASSWORD))
-        self.assertTrue(profile_for(user).is_onboarded)
-        self.assertEqual(self.client.get(reverse("tracker:dashboard")).wsgi_request.user, user)
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertFalse(profile_for(user).is_onboarded)
+        self.assertEqual(profile_for(user).display_name, "Lionel")
+        response = self.client.get(reverse("accounts:onboarding"))
+        self.assertEqual(response.wsgi_request.user, user)
+        self.assertRedirects(response, "/bienvenue/situation/")
 
     def test_signup_rejects_duplicates_and_weak_passwords(self):
         make_user("Lionel", username="lionel@example.org", email="lionel@example.org")
@@ -330,17 +342,25 @@ class AccountsModeTests(TestCase):
         self.assertRedirects(response, reverse("accounts:login"), fetch_redirect_response=False)
         self.assertNotIn("_auth_user_id", self.client.session)
 
-    def test_anonymous_onboarding_is_signup(self):
+    def test_anonymous_onboarding_starts_the_questionnaire(self):
         response = self.client.get(reverse("accounts:onboarding"))
-        self.assertRedirects(response, reverse("accounts:signup"), fetch_redirect_response=False)
+        self.assertRedirects(response, "/bienvenue/situation/")
+
+    def test_anonymous_onboarding_goes_to_login_when_signup_is_closed(self):
+        with self.settings(SIGNUP_OPEN=False):
+            response = self.client.get(reverse("accounts:onboarding"))
+        self.assertRedirects(
+            response, f"{reverse('accounts:login')}?next={reverse('accounts:onboarding')}",
+            fetch_redirect_response=False,
+        )
 
     def test_account_created_elsewhere_completes_its_profile_first(self):
         superuser = User.objects.create_superuser("root", "root@example.org", self.PASSWORD)
         self.client.force_login(superuser)
         response = self.client.get(reverse("tracker:dashboard"))
         self.assertRedirects(response, reverse("accounts:onboarding"), fetch_redirect_response=False)
-        self.assertContains(self.client.get(reverse("accounts:onboarding")), "Faisons connaissance")
-        self.client.post(reverse("accounts:onboarding"), {"display_name": "Root"})
+        self.assertContains(walk(self.client, until="identite", name="Root"), "Faisons connaissance")
+        walk(self.client, name="Root")
         self.assertTrue(profile_for(superuser).is_onboarded)
         self.assertEqual(self.client.get(reverse("tracker:dashboard")).status_code, 200)
 
@@ -369,7 +389,7 @@ class SettingsTests(OwnedTestCase):
     def test_page_renders_with_every_section(self):
         response = self.client.get(reverse("accounts:settings"))
         self.assertEqual(response.status_code, 200)
-        for anchor in ("profil", "preferences", "mot-de-passe", "supprimer"):
+        for anchor in ("profil", "recherche", "preferences", "mot-de-passe", "supprimer"):
             self.assertContains(response, f'id="{anchor}"')
         self.assertContains(response, "Définir un mot de passe")  # no usable password yet
         self.assertContains(response, "facultatif en local")
@@ -462,6 +482,173 @@ class SettingsTests(OwnedTestCase):
         self.assertRedirects(response, reverse("accounts:settings"))
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("autre-mot-de-passe-99"))
+
+    # -- the search section: the questionnaire's answers, editable -----------
+
+    def search_post(self, **overrides):
+        """A complete, valid submission of the search section; ``overrides`` replace fields."""
+        data = {
+            "titles": ["Chef de projet", "Scrum master"],
+            "industries": ["it", "consulting"],
+            "experience_level": "senior",
+            "education_level": "bachelor",
+            "work_types": ["permanent"],
+            "work_mode": "hybrid",
+            "cities": ["Mons"],
+            "salary_period": "year",
+            "salary_min": "70000",
+            "start_timeline": "open",
+            "employment_status": "employed_ready",
+            "challenge": "no_reply",
+            "help_wanted": ["track", "gaps"],
+            "ai_tools_used": "yes",
+        }
+        data.update(overrides)
+        return self.post("recherche", **data)
+
+    def test_search_section_shows_the_questionnaire_answers(self):
+        finish_onboarding(self.user, all_answers())
+        page = self.client.get(reverse("accounts:settings"))
+        form = page.context["search_form"]
+        self.assertEqual(form.titles, ["Ingénieur DevOps", "Ingénieur cloud"])
+        self.assertEqual(form.cities, ["Nivelles", "Wavre"])
+        self.assertEqual(form.initial["industries"], ["it", "consulting"])
+        self.assertEqual(form.initial["work_types"], ["permanent", "freelance"])
+        self.assertEqual(form.initial["help_wanted"], ["track", "documents"])
+        self.assertEqual((form.initial["salary_min"], form.initial["salary_period"]), (5900, "month"))
+        # Rendered as the questionnaire renders them: chips, selected options, checked boxes.
+        self.assertContains(page, 'name="titles" value="Ingénieur DevOps"')
+        self.assertContains(page, 'name="cities" value="Wavre"')
+        self.assertContains(page, '<option value="hybrid" selected>')
+        self.assertContains(page, '<option value="employed_open" selected>')
+        self.assertContains(page, 'value="5900"')
+        self.assertContains(page, 'name="salary_period" value="month" checked')
+        checked = {box.data["value"] for box in form["industries"].subwidgets if box.data["selected"]}
+        self.assertEqual(checked, {"it", "consulting"})
+        self.assertRegex(page.content.decode(), r'name="industries" value="consulting"[^>]*\bchecked\b')
+        self.assertContains(page, 'class="visually-hidden"')  # the boxes hide behind their chips
+        self.assertContains(page, "Postes proches")
+        # A picked chip is a checked box: without JavaScript, unticking it removes the entry.
+        self.assertContains(page, 'type="checkbox" class="visually-hidden" name="titles" value="Ingénieur DevOps" checked')
+        self.assertContains(page, "tes réponses du parcours Bienvenue")
+
+    def test_search_section_carries_the_widget_contract(self):
+        """What fields.js reads: which combobox a recommendation feeds, which boxes are exclusive."""
+        finish_onboarding(self.user, all_answers())
+        html = self.client.get(reverse("accounts:settings")).content.decode()
+        self.assertIn('data-chips-for="titles"', html)
+        self.assertIn('data-chips-row="titles"', html)
+        self.assertIn('data-chips-row="cities"', html)
+        self.assertIn('data-chips-name="cities"', html)
+        self.assertRegex(html, r'name="industries" value="all"[^>]*\bdata-exclusive\b')
+        self.assertRegex(html, r'name="work_types" value="any"[^>]*\bdata-exclusive\b')
+        self.assertEqual(html.count("data-exclusive"), 2)
+        self.assertIn('<script src="/static/js/fields.js" defer></script>', html)
+
+    def test_search_section_reads_without_writing_a_row(self):
+        page = self.client.get(reverse("accounts:settings"))
+        self.assertEqual(page.status_code, 200)
+        self.assertFalse(SearchProfile.objects.filter(user=self.user).exists())
+        self.assertEqual(page.context["search_form"].titles, [])
+        self.assertContains(page, '<option value="" selected>Pas de réponse</option>')
+        self.assertContains(page, "les questions du parcours Bienvenue")
+
+    def test_search_update_creates_the_row_and_keeps_the_invariants(self):
+        response = self.search_post(
+            industries=["it", "all"], work_types=["permanent", "any"], work_mode="remote",
+        )
+        self.assertRedirects(response, reverse("accounts:settings"), fetch_redirect_response=False)
+        search = SearchProfile.objects.get(user=self.user)
+        self.assertEqual(search.job_titles, ["Chef de projet", "Scrum master"])
+        self.assertTrue(search.any_industry)
+        self.assertEqual(search.industries, [])          # « tous secteurs » stands alone
+        self.assertEqual(search.work_types, ["any"])     # « peu importe » stands alone
+        self.assertEqual(search.work_mode, "remote")
+        self.assertEqual(search.cities, [])              # remote work has no city
+        self.assertEqual((search.salary_min, search.salary_period), (70000, "year"))
+        self.assertEqual(search.start_timeline, "open")
+        self.assertEqual(search.employment_status, "employed_ready")
+        self.assertEqual(search.help_wanted, ["track", "gaps"])
+        self.assertEqual(search.ai_tools_used, "yes")
+        page = self.client.get(reverse("accounts:settings"))
+        self.assertContains(page, "Recherche enregistrée.")
+        self.assertEqual(page.context["search_form"].initial["industries"], ["all"])
+        # The profile and the preferences are the other sections' business.
+        profile = profile_for(self.user)
+        self.assertEqual((profile.headline, profile.location), ("", "Nivelles"))
+
+    def test_search_update_edits_the_existing_row(self):
+        finish_onboarding(self.user, all_answers())
+        self.search_post(experience_level="lead", salary_min="")
+        self.assertEqual(SearchProfile.objects.filter(user=self.user).count(), 1)
+        search = SearchProfile.objects.get(user=self.user)
+        self.assertEqual(search.experience_level, "lead")
+        self.assertEqual(search.cities, ["Mons"])
+        self.assertEqual(search.work_mode, "hybrid")
+        self.assertEqual((search.salary_min, search.salary_period), (None, ""))  # emptied
+
+    def test_search_titles_come_from_chips_or_from_text(self):
+        self.search_post(titles=[], titles_text=" Chef de projet , scrum master, Chef de projet ")
+        self.assertEqual(SearchProfile.objects.get(user=self.user).job_titles, ["Chef de projet", "scrum master"])
+        response = self.search_post(titles=[f"Poste {n}" for n in range(11)])
+        self.assertEqual(response.status_code, 200)
+        form = response.context["search_form"]
+        self.assertEqual(form.errors["titles_text"], ["10 intitulés, c'est déjà beaucoup."])
+        self.assertEqual(len(form.titles), 11)  # the page shown again keeps the chips
+        response = self.search_post(titles=[])
+        self.assertEqual(response.context["search_form"].errors["titles_text"], ["Indique au moins un poste."])
+        self.assertContains(response, "Indique au moins un poste.")
+        self.assertNotContains(response, "Recherche enregistrée.")
+
+    def test_search_salary_needs_a_period_and_a_plausible_amount(self):
+        response = self.search_post(salary_min="90000", salary_period="month")
+        self.assertEqual(
+            response.context["search_form"].errors["salary_min"],
+            ["Ce montant semble hors limites pour cette période."],
+        )
+        response = self.search_post(salary_min="3000", salary_period="")
+        self.assertEqual(response.context["search_form"].errors["salary_period"], ["Choisis une période."])
+        response = self.search_post(salary_min="-5")
+        self.assertEqual(response.context["search_form"].errors["salary_min"], ["Un montant au-dessus de zéro, ou rien."])
+        response = self.search_post(salary_min="3000", salary_period="bogus")  # a forged radio value
+        self.assertEqual(response.context["search_form"].errors["salary_period"], ["Choisis une période."])
+        self.search_post(salary_min="", salary_period="hour")
+        self.assertEqual(SearchProfile.objects.get(user=self.user).salary_period, "")
+
+    def test_search_needs_a_contract_type_but_not_the_context_answers(self):
+        response = self.search_post(work_types=[])
+        self.assertEqual(response.context["search_form"].errors["work_types"], ["Choisis au moins un type de contrat."])
+        self.search_post(help_wanted=[], employment_status="", challenge="", ai_tools_used="")
+        search = SearchProfile.objects.get(user=self.user)
+        self.assertEqual((search.help_wanted, search.employment_status, search.challenge), ([], "", ""))
+
+    def test_search_chips_refuse_control_characters_and_oversized_text(self):
+        response = self.search_post(titles=["Chef\x00de projet"])
+        self.assertEqual(response.context["search_form"].errors["titles_text"], ["Un intitulé contient un caractère interdit."])
+        self.assertFalse(SearchProfile.objects.filter(user=self.user).exists())
+        # A body of many comma-separated tokens is refused by the field's length, never walked.
+        response = self.search_post(titles=[], titles_text=",".join(f"p{n}" for n in range(2000)))
+        self.assertEqual(
+            response.context["search_form"].errors["titles_text"],
+            ["C'est trop long pour un champ : 10 intitulés au maximum, séparés par des virgules."],
+        )
+
+    def test_search_entries_are_escaped_wherever_the_page_echoes_them(self):
+        hostile = '<b>x</b>"onmouseover="y'
+        self.search_post(titles=[hostile], cities=[hostile])
+        self.assertEqual(SearchProfile.objects.get(user=self.user).job_titles, [hostile])
+        page = self.client.get(reverse("accounts:settings"))
+        self.assertNotContains(page, "<b>x</b>")
+        self.assertContains(page, "&lt;b&gt;x&lt;/b&gt;&quot;onmouseover=&quot;y", count=6)  # text, value, aria-label × 2 fields
+
+    def test_search_refuses_values_outside_the_lists(self):
+        response = self.search_post(work_mode="bogus", industries=["bogus"], experience_level="guru")
+        form = response.context["search_form"]
+        self.assertEqual(set(form.errors), {"work_mode", "industries", "experience_level"})
+        self.assertEqual(form.errors["work_mode"], ["Choisis une réponse de la liste."])
+        self.assertFalse(SearchProfile.objects.filter(user=self.user).exists())
+        self.search_post(work_mode="")
+        self.assertEqual(SearchProfile.objects.get(user=self.user).work_mode, "unknown")
 
     def test_delete_account_needs_the_exact_name(self):
         make_application(self.user)

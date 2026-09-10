@@ -4,17 +4,18 @@
 {% block title %}Tableau de bord — JobHunt{% endblock %}
 
 {% block content %}
-  <div class="page-head">
+  <div class="page-head page-head--welcome">
     <div class="page-head__row">
       <div>
-        <span class="eyebrow">Relevé du jour</span>
-        <h1 class="page-title">
+        <span class="eyebrow">Votre recherche, en mouvement</span>
+        <h1 class="page-title">On avance, <em>{{ request.profile.display_name|default:"ensemble" }}.</em></h1>
+        <p class="page-lede">
           {% if attention %}{{ attention|length }} candidature{{ attention|length|pluralize_fr }} {{ attention|length|pluralize_fr:"attend,attendent" }} quelque chose de toi
           {% elif stats.to_apply %}Rien à relancer. {{ stats.to_apply }} dossier{{ stats.to_apply|pluralize_fr }} {{ stats.to_apply|pluralize_fr:"est prêt,sont prêts" }} à partir
           {% elif stats.tracked %}Tout est à jour
           {% else %}Le suivi est vide{% endif %}
-        </h1>
-        <p class="page-lede">
+        </p>
+        <p class="page-context">
           {% if attention %}
             Relances arrivées à échéance et candidatures sans nouvelles depuis plus de {{ stale_days }} jours.
             Traite-les d'abord, le reste peut attendre.
@@ -23,7 +24,7 @@
           {% elif stats.tracked %}
             Aucune relance due, aucune candidature en souffrance. Bon moment pour ouvrir une nouvelle piste.
           {% else %}
-            Ajoute une première offre, ou lance <code>manage.py import_legacy</code> pour reprendre le tableur.
+            Ajoute une première offre pour commencer ton prochain chapitre.
           {% endif %}
         </p>
       </div>

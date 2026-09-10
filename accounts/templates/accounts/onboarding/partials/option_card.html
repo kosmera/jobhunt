@@ -1,0 +1,16 @@
+{% comment %}
+  One selectable card: a real radio or checkbox inside a label. ``current`` is
+  the single value in place, ``selected`` the list of a multi-choice screen,
+  ``checked`` an explicit flag.
+{% endcomment %}
+<label class="option{% if description %} option--rich{% endif %}{% if wide %} option--wide{% endif %}"{% if hidden %} hidden{% endif %}>
+  <input class="visually-hidden" type="{{ input_type }}" name="{{ name }}" value="{{ value }}"
+         {% if checked or value == current or value in selected %}checked{% endif %}
+         {% if check_all %}data-check-all{% endif %}>
+  {% if icon %}<svg class="option__icon" aria-hidden="true"><use href="#i-{{ icon }}"></use></svg>{% endif %}
+  <span class="option__body">
+    <span class="option__label">{{ label }}</span>
+    {% if description %}<span class="option__sub">{{ description }}</span>{% endif %}
+  </span>
+  <svg class="option__check" aria-hidden="true"><use href="#i-check"></use></svg>
+</label>

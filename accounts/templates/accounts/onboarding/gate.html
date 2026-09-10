@@ -1,0 +1,40 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% load tracker_extras %}
+{% block title %}{% if variant == "accounts_signup" %}Ton compte{% else %}Ton profil{% endif %} — JobHunt{% endblock %}
+{% block step %}
+  <form method="post" class="onb__form" novalidate>
+    {% csrf_token %}
+    <fieldset class="onb__fieldset">
+      {% if variant == "accounts_signup" %}
+        <span class="eyebrow onb__eyebrow">Ton compte</span>
+        <legend class="onb__title">Garde tes réponses : crée ton compte</legend>
+        <p class="onb__lede">Un nom, un e-mail, un mot de passe. Tes candidatures ne sont visibles que de toi.</p>
+      {% elif variant == "local_claim" %}
+        <span class="eyebrow onb__eyebrow">Reprise du suivi</span>
+        <legend class="onb__title">Comment t'appeler ?</legend>
+        <p class="onb__lede">Il ne manque qu'un nom pour rouvrir le suivi{% if waiting.applications %} : {{ waiting.applications }} candidature{{ waiting.applications|pluralize_fr }} t'attend{{ waiting.applications|pluralize_fr:"ent" }}{% endif %}.</p>
+      {% elif variant == "named_later" %}
+        <span class="eyebrow onb__eyebrow">Ton profil</span>
+        <legend class="onb__title">Faisons connaissance</legend>
+        <p class="onb__lede">Ce compte n'a pas encore de nom. Une ligne suffit, le reste se règle plus tard.</p>
+      {% else %}
+        <span class="eyebrow onb__eyebrow">Ton profil</span>
+        <legend class="onb__title">Comment t'appeler ?</legend>
+        <p class="onb__lede">Aucun mot de passe ici : cet outil tourne sur ta machine. Un nom suffit pour garder tes réponses et ranger ton CV.</p>
+      {% endif %}
+      {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+      {% include "tracker/partials/field.html" with field=form.display_name %}
+      {% if variant == "accounts_signup" %}
+        {% include "tracker/partials/field.html" with field=form.email %}
+        {% include "tracker/partials/field.html" with field=form.password1 %}
+        {% include "tracker/partials/field.html" with field=form.password2 %}
+      {% endif %}
+    </fieldset>
+    <div class="onb__actions">
+      <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">
+        {% if variant == "accounts_signup" %}Créer mon compte{% else %}Continuer{% endif %}
+      </button>
+      {% if variant == "accounts_signup" %}<p class="onb__note">Déjà un compte ? <a href="{{ login_url }}">Se connecter</a>.</p>{% endif %}
+    </div>
+  </form>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% block step %}
+  <form method="post" class="onb__form" novalidate data-industries>
+    {% csrf_token %}
+    <fieldset class="onb__fieldset">
+      <legend class="onb__title">{{ step.title }}</legend>
+      {% if step.lede %}<p class="onb__lede">{{ step.lede }}</p>{% endif %}
+      {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+      <div class="option-grid">
+        {% for card in primary_cards %}
+          {% include "accounts/onboarding/partials/option_card.html" with input_type="checkbox" name="industries" value=card.value label=card.label icon=card.icon checked=card.checked %}
+        {% endfor %}
+        <details class="option-grid__more"{% if more_open %} open{% endif %}>
+          <summary class="option option--more">
+            <span class="option__body"><span class="option__label">Voir plus</span></span>
+          </summary>
+          <div class="option-grid">
+            {% for card in more_cards %}
+              {% include "accounts/onboarding/partials/option_card.html" with input_type="checkbox" name="industries" value=card.value label=card.label icon=card.icon checked=card.checked %}
+            {% endfor %}
+          </div>
+        </details>
+      </div>
+      <div class="option-list option-list--wide">
+        <label class="option option--wide">
+          <input class="visually-hidden" type="checkbox" name="any_industry" value="1" {% if any_industry %}checked{% endif %} data-exclusive>
+          <span class="option__body"><span class="option__label">Je suis ouvert·e à tous les secteurs</span></span>
+          <svg class="option__check" aria-hidden="true"><use href="#i-check"></use></svg>
+        </label>
+      </div>
+    </fieldset>
+    {% include "accounts/onboarding/partials/actions.html" with skip_label="Passer" skip_swap=True %}
+  </form>
+{% endblock %}

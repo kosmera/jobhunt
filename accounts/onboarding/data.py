@@ -1,0 +1,1126 @@
+"""Static suggestion lists for the questionnaire: job titles, related titles, Belgian cities.
+
+Pure data, no Django: the sector labels live with the ``Industry`` choices in
+``accounts.models``; here only their order on the grid is decided. Titles are
+written the way Belgian francophone job boards post them (English kept where
+the market uses it as-is); the cities are real communes, Flemish ones under
+their French exonym, plus two localities that are job hubs in their own right.
+"""
+
+from __future__ import annotations
+
+import unicodedata
+from collections.abc import Iterable
+
+__all__ = [
+    "CITIES",
+    "INDUSTRIES_MORE",
+    "INDUSTRIES_PRIMARY",
+    "JOB_TITLES",
+    "PROVINCES",
+    "RECOMMENDATIONS",
+    "related_titles",
+    "search_cities",
+    "search_titles",
+]
+
+
+def _fold(text: str) -> str:
+    """Casefold and strip accents (NFKD) for matching and ordering."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
+def _rank(needle: str, folded: str) -> int | None:
+    """0 = prefix, 1 = word start, 2 = anywhere; None = no match."""
+    if folded.startswith(needle):
+        return 0
+    if f" {needle}" in f" {folded}".replace("-", " ").replace("/", " "):
+        return 1
+    if needle in folded:
+        return 2
+    return None
+
+
+# Sectors shown on the onboarding screen; the first INDUSTRIES_SHOWN_BY_DEFAULT are
+# visible before the user expands the list. Icons are ids of the app sprite ("i-<icon>").
+#: The sectors shown on the grid first, in this order, then behind « Voir plus ».
+#: Values of ``accounts.models.Industry``; each has a ``#i-sector-<id>`` symbol.
+INDUSTRIES_PRIMARY: tuple[str, ...] = (
+    "it", "health", "finance", "sales", "marketing", "retail", "education",
+    "hr", "hospitality", "manufacturing", "logistics", "media", "construction", "real_estate",
+)
+INDUSTRIES_MORE: tuple[str, ...] = ("public", "energy", "consulting", "science")
+
+# Job titles as they appear on Belgian francophone job boards, in display order
+# (alphabetical, accents ignored). English titles are kept when used as-is locally.
+JOB_TITLES: tuple[str, ...] = (
+    "Account Manager",
+    "Administrateur de bases de données",
+    "Administrateur système",
+    "Agent d'accueil",
+    "Agent immobilier / Agente immobilière",
+    "Aide-comptable",
+    "Aide-soignant / Aide-soignante",
+    "Analyste BI",
+    "Analyste cybersécurité",
+    "Analyste financier / Analyste financière",
+    "Analyste fonctionnel",
+    "Analyste programmeur",
+    "Animateur / Animatrice",
+    "Architecte",
+    "Architecte cloud",
+    "Architecte logiciel",
+    "Assistant administratif / Assistante administrative",
+    "Assistant social / Assistante sociale",
+    "Auditeur / Auditrice",
+    "Business Analyst",
+    "Business Developer",
+    "Caissier / Caissière",
+    "Cariste",
+    "Change Manager",
+    "Chargé / Chargée de communication",
+    "Chargé / Chargée de projet",
+    "Chauffagiste",
+    "Chauffeur poids lourd",
+    "Chef de chantier",
+    "Chef de cuisine",
+    "Chef de projet",
+    "Chef de projet IT",
+    "Cloud Engineer",
+    "Community Manager",
+    "Compliance Officer",
+    "Comptable",
+    "Conducteur / Conductrice de travaux",
+    "Conseiller / Conseillère en prévention",
+    "Conseiller bancaire / Conseillère bancaire",
+    "Consultant / Consultante",
+    "Consultant en management",
+    "Consultant IT",
+    "Consultant SAP",
+    "Content Manager",
+    "Contrôleur de gestion",
+    "Coordinateur / Coordinatrice de projet",
+    "Cuisinier / Cuisinière",
+    "Customer Success Manager",
+    "Data Analyst",
+    "Data Engineer",
+    "Data Scientist",
+    "Délégué commercial / Déléguée commerciale",
+    "Dessinateur / Dessinatrice",
+    "Développeur .NET",
+    "Développeur Backend",
+    "Développeur Frontend",
+    "Développeur Full Stack",
+    "Développeur Java",
+    "Développeur JavaScript",
+    "Développeur Mobile",
+    "Développeur Python",
+    "Développeur Web",
+    "Deviseur / Deviseuse",
+    "Digital Marketer",
+    "Éducateur / Éducatrice",
+    "Électricien / Électricienne",
+    "Électromécanicien / Électromécanicienne",
+    "Employé administratif / Employée administrative",
+    "Enseignant / Enseignante",
+    "Fiscaliste",
+    "Formateur / Formatrice",
+    "Gérant / Gérante de magasin",
+    "Gestionnaire de sinistres",
+    "Gestionnaire immobilier / Gestionnaire immobilière",
+    "Graphiste",
+    "HR Business Partner",
+    "Infirmier / Infirmière",
+    "Ingénieur civil",
+    "Ingénieur DevOps",
+    "Ingénieur en énergie",
+    "Ingénieur industriel",
+    "Ingénieur logiciel",
+    "Ingénieur qualité",
+    "Ingénieur réseau",
+    "Instituteur / Institutrice",
+    "Journaliste",
+    "Juriste",
+    "Key Account Manager",
+    "Kinésithérapeute",
+    "Logopède",
+    "Machine Learning Engineer",
+    "Magasinier / Magasinière",
+    "Marketing Manager",
+    "Mécanicien / Mécanicienne",
+    "Médecin généraliste",
+    "Monteur vidéo / Monteuse vidéo",
+    "Motion Designer",
+    "Office Manager",
+    "Opérateur / Opératrice de production",
+    "Payroll Officer",
+    "Pharmacien / Pharmacienne",
+    "Plombier / Plombière",
+    "Préparateur / Préparatrice de commandes",
+    "Product Designer",
+    "Product Manager",
+    "Product Owner",
+    "Property Manager",
+    "Psychologue",
+    "Puériculteur / Puéricultrice",
+    "QA Engineer",
+    "Réceptionniste",
+    "Recruteur / Recruteuse",
+    "Rédacteur / Rédactrice",
+    "Responsable de production",
+    "Responsable de rayon",
+    "Responsable logistique",
+    "Responsable RH",
+    "Sales Manager",
+    "Scrum Master",
+    "Serveur / Serveuse",
+    "Site Reliability Engineer",
+    "Software Engineer",
+    "Supply Chain Manager",
+    "Talent Acquisition Specialist",
+    "Tech Lead",
+    "Technicien de maintenance",
+    "Technicien helpdesk",
+    "Technicien HVAC",
+    "UX Designer",
+    "Vendeur / Vendeuse",
+)
+
+# Related titles suggested once a title is picked. Every value exists in JOB_TITLES.
+RECOMMENDATIONS: dict[str, tuple[str, ...]] = {
+    "Account Manager": (
+        "Key Account Manager",
+        "Business Developer",
+        "Sales Manager",
+        "Customer Success Manager",
+    ),
+    "Administrateur de bases de données": (
+        "Data Engineer",
+        "Administrateur système",
+        "Développeur Backend",
+        "Analyste BI",
+    ),
+    "Administrateur système": (
+        "Ingénieur réseau",
+        "Ingénieur DevOps",
+        "Technicien helpdesk",
+        "Cloud Engineer",
+        "Administrateur de bases de données",
+    ),
+    "Agent d'accueil": (
+        "Réceptionniste",
+        "Employé administratif / Employée administrative",
+        "Caissier / Caissière",
+    ),
+    "Agent immobilier / Agente immobilière": (
+        "Property Manager",
+        "Gestionnaire immobilier / Gestionnaire immobilière",
+        "Délégué commercial / Déléguée commerciale",
+        "Conseiller bancaire / Conseillère bancaire",
+    ),
+    "Aide-comptable": (
+        "Comptable",
+        "Employé administratif / Employée administrative",
+        "Assistant administratif / Assistante administrative",
+    ),
+    "Aide-soignant / Aide-soignante": (
+        "Infirmier / Infirmière",
+        "Puériculteur / Puéricultrice",
+        "Éducateur / Éducatrice",
+    ),
+    "Analyste BI": ("Data Analyst", "Data Engineer", "Business Analyst", "Contrôleur de gestion"),
+    "Analyste cybersécurité": (
+        "Ingénieur réseau",
+        "Administrateur système",
+        "Consultant IT",
+        "Site Reliability Engineer",
+    ),
+    "Analyste financier / Analyste financière": (
+        "Contrôleur de gestion",
+        "Comptable",
+        "Auditeur / Auditrice",
+        "Data Analyst",
+    ),
+    "Analyste fonctionnel": (
+        "Business Analyst",
+        "Product Owner",
+        "Analyste programmeur",
+        "QA Engineer",
+    ),
+    "Analyste programmeur": (
+        "Développeur Backend",
+        "Analyste fonctionnel",
+        "Développeur Java",
+        "Développeur .NET",
+    ),
+    "Animateur / Animatrice": (
+        "Éducateur / Éducatrice",
+        "Formateur / Formatrice",
+        "Coordinateur / Coordinatrice de projet",
+    ),
+    "Architecte": (
+        "Ingénieur civil",
+        "Dessinateur / Dessinatrice",
+        "Conducteur / Conductrice de travaux",
+        "Deviseur / Deviseuse",
+    ),
+    "Architecte cloud": (
+        "Cloud Engineer",
+        "Ingénieur DevOps",
+        "Architecte logiciel",
+        "Consultant IT",
+    ),
+    "Architecte logiciel": (
+        "Tech Lead",
+        "Ingénieur logiciel",
+        "Architecte cloud",
+        "Software Engineer",
+    ),
+    "Assistant administratif / Assistante administrative": (
+        "Employé administratif / Employée administrative",
+        "Office Manager",
+        "Réceptionniste",
+        "Aide-comptable",
+    ),
+    "Assistant social / Assistante sociale": (
+        "Éducateur / Éducatrice",
+        "Psychologue",
+        "Chargé / Chargée de projet",
+        "Animateur / Animatrice",
+    ),
+    "Auditeur / Auditrice": (
+        "Comptable",
+        "Contrôleur de gestion",
+        "Compliance Officer",
+        "Fiscaliste",
+    ),
+    "Business Analyst": (
+        "Analyste fonctionnel",
+        "Product Owner",
+        "Data Analyst",
+        "Chef de projet IT",
+        "Consultant IT",
+    ),
+    "Business Developer": (
+        "Account Manager",
+        "Sales Manager",
+        "Délégué commercial / Déléguée commerciale",
+        "Marketing Manager",
+    ),
+    "Caissier / Caissière": ("Vendeur / Vendeuse", "Agent d'accueil", "Réceptionniste"),
+    "Cariste": (
+        "Magasinier / Magasinière",
+        "Préparateur / Préparatrice de commandes",
+        "Chauffeur poids lourd",
+        "Opérateur / Opératrice de production",
+    ),
+    "Change Manager": (
+        "Consultant en management",
+        "Chef de projet",
+        "Scrum Master",
+        "HR Business Partner",
+    ),
+    "Chargé / Chargée de communication": (
+        "Community Manager",
+        "Content Manager",
+        "Journaliste",
+        "Marketing Manager",
+    ),
+    "Chargé / Chargée de projet": (
+        "Coordinateur / Coordinatrice de projet",
+        "Chef de projet",
+        "Chargé / Chargée de communication",
+        "Assistant social / Assistante sociale",
+    ),
+    "Chauffagiste": (
+        "Plombier / Plombière",
+        "Technicien HVAC",
+        "Électricien / Électricienne",
+        "Technicien de maintenance",
+    ),
+    "Chauffeur poids lourd": (
+        "Cariste",
+        "Magasinier / Magasinière",
+        "Préparateur / Préparatrice de commandes",
+    ),
+    "Chef de chantier": (
+        "Conducteur / Conductrice de travaux",
+        "Deviseur / Deviseuse",
+        "Électricien / Électricienne",
+        "Plombier / Plombière",
+    ),
+    "Chef de cuisine": (
+        "Cuisinier / Cuisinière",
+        "Serveur / Serveuse",
+        "Gérant / Gérante de magasin",
+    ),
+    "Chef de projet": (
+        "Chef de projet IT",
+        "Coordinateur / Coordinatrice de projet",
+        "Chargé / Chargée de projet",
+        "Scrum Master",
+    ),
+    "Chef de projet IT": (
+        "Chef de projet",
+        "Scrum Master",
+        "Business Analyst",
+        "Product Owner",
+        "Consultant IT",
+    ),
+    "Cloud Engineer": (
+        "Ingénieur DevOps",
+        "Architecte cloud",
+        "Site Reliability Engineer",
+        "Administrateur système",
+    ),
+    "Community Manager": (
+        "Content Manager",
+        "Digital Marketer",
+        "Chargé / Chargée de communication",
+        "Graphiste",
+    ),
+    "Compliance Officer": ("Juriste", "Auditeur / Auditrice", "Analyste cybersécurité"),
+    "Comptable": (
+        "Aide-comptable",
+        "Contrôleur de gestion",
+        "Fiscaliste",
+        "Analyste financier / Analyste financière",
+    ),
+    "Conducteur / Conductrice de travaux": (
+        "Chef de chantier",
+        "Deviseur / Deviseuse",
+        "Ingénieur civil",
+        "Architecte",
+    ),
+    "Conseiller / Conseillère en prévention": (
+        "Ingénieur qualité",
+        "Responsable RH",
+        "Ingénieur en énergie",
+        "Responsable de production",
+    ),
+    "Conseiller bancaire / Conseillère bancaire": (
+        "Account Manager",
+        "Gestionnaire de sinistres",
+        "Comptable",
+        "Agent immobilier / Agente immobilière",
+    ),
+    "Consultant / Consultante": (
+        "Consultant en management",
+        "Consultant IT",
+        "Business Analyst",
+        "Change Manager",
+    ),
+    "Consultant en management": (
+        "Consultant / Consultante",
+        "Change Manager",
+        "Chef de projet",
+        "Contrôleur de gestion",
+    ),
+    "Consultant IT": (
+        "Consultant SAP",
+        "Business Analyst",
+        "Chef de projet IT",
+        "Consultant / Consultante",
+        "Architecte cloud",
+    ),
+    "Consultant SAP": (
+        "Consultant IT",
+        "Business Analyst",
+        "Analyste fonctionnel",
+        "Chef de projet IT",
+    ),
+    "Content Manager": (
+        "Community Manager",
+        "Rédacteur / Rédactrice",
+        "Digital Marketer",
+        "Journaliste",
+    ),
+    "Contrôleur de gestion": (
+        "Comptable",
+        "Analyste financier / Analyste financière",
+        "Analyste BI",
+        "Auditeur / Auditrice",
+    ),
+    "Coordinateur / Coordinatrice de projet": (
+        "Chargé / Chargée de projet",
+        "Chef de projet",
+        "Office Manager",
+    ),
+    "Cuisinier / Cuisinière": ("Chef de cuisine", "Serveur / Serveuse", "Réceptionniste"),
+    "Customer Success Manager": (
+        "Account Manager",
+        "Technicien helpdesk",
+        "Product Owner",
+        "Community Manager",
+    ),
+    "Data Analyst": ("Analyste BI", "Data Scientist", "Data Engineer", "Business Analyst"),
+    "Data Engineer": (
+        "Data Scientist",
+        "Développeur Python",
+        "Administrateur de bases de données",
+        "Cloud Engineer",
+        "Data Analyst",
+    ),
+    "Data Scientist": (
+        "Machine Learning Engineer",
+        "Data Analyst",
+        "Data Engineer",
+        "Développeur Python",
+    ),
+    "Délégué commercial / Déléguée commerciale": (
+        "Account Manager",
+        "Business Developer",
+        "Vendeur / Vendeuse",
+        "Key Account Manager",
+    ),
+    "Dessinateur / Dessinatrice": (
+        "Architecte",
+        "Deviseur / Deviseuse",
+        "Graphiste",
+        "Ingénieur civil",
+    ),
+    "Développeur .NET": (
+        "Développeur Backend",
+        "Développeur Java",
+        "Développeur Full Stack",
+        "Software Engineer",
+    ),
+    "Développeur Backend": (
+        "Développeur Python",
+        "Développeur Java",
+        "Développeur .NET",
+        "Développeur Full Stack",
+        "Software Engineer",
+    ),
+    "Développeur Frontend": (
+        "Développeur JavaScript",
+        "Développeur Web",
+        "Développeur Full Stack",
+        "UX Designer",
+    ),
+    "Développeur Full Stack": (
+        "Développeur Web",
+        "Développeur Frontend",
+        "Développeur Backend",
+        "Développeur JavaScript",
+    ),
+    "Développeur Java": (
+        "Développeur Backend",
+        "Software Engineer",
+        "Développeur .NET",
+        "Architecte logiciel",
+    ),
+    "Développeur JavaScript": (
+        "Développeur Frontend",
+        "Développeur Full Stack",
+        "Développeur Web",
+        "Développeur Mobile",
+    ),
+    "Développeur Mobile": (
+        "Développeur JavaScript",
+        "Développeur Frontend",
+        "Développeur Full Stack",
+        "Product Designer",
+    ),
+    "Développeur Python": (
+        "Développeur Backend",
+        "Data Engineer",
+        "Software Engineer",
+        "Développeur Full Stack",
+    ),
+    "Développeur Web": (
+        "Développeur Full Stack",
+        "Développeur Frontend",
+        "Développeur JavaScript",
+        "Développeur Backend",
+    ),
+    "Deviseur / Deviseuse": (
+        "Conducteur / Conductrice de travaux",
+        "Dessinateur / Dessinatrice",
+        "Ingénieur civil",
+        "Chef de chantier",
+    ),
+    "Digital Marketer": (
+        "Marketing Manager",
+        "Community Manager",
+        "Content Manager",
+        "Data Analyst",
+    ),
+    "Éducateur / Éducatrice": (
+        "Assistant social / Assistante sociale",
+        "Animateur / Animatrice",
+        "Puériculteur / Puéricultrice",
+        "Enseignant / Enseignante",
+    ),
+    "Électricien / Électricienne": (
+        "Électromécanicien / Électromécanicienne",
+        "Technicien de maintenance",
+        "Chauffagiste",
+        "Technicien HVAC",
+    ),
+    "Électromécanicien / Électromécanicienne": (
+        "Électricien / Électricienne",
+        "Technicien de maintenance",
+        "Mécanicien / Mécanicienne",
+        "Ingénieur industriel",
+    ),
+    "Employé administratif / Employée administrative": (
+        "Assistant administratif / Assistante administrative",
+        "Agent d'accueil",
+        "Aide-comptable",
+        "Office Manager",
+    ),
+    "Enseignant / Enseignante": (
+        "Instituteur / Institutrice",
+        "Formateur / Formatrice",
+        "Éducateur / Éducatrice",
+    ),
+    "Fiscaliste": ("Comptable", "Juriste", "Auditeur / Auditrice"),
+    "Formateur / Formatrice": (
+        "Enseignant / Enseignante",
+        "Recruteur / Recruteuse",
+        "Animateur / Animatrice",
+        "Consultant / Consultante",
+    ),
+    "Gérant / Gérante de magasin": (
+        "Responsable de rayon",
+        "Vendeur / Vendeuse",
+        "Sales Manager",
+    ),
+    "Gestionnaire de sinistres": (
+        "Conseiller bancaire / Conseillère bancaire",
+        "Employé administratif / Employée administrative",
+        "Juriste",
+    ),
+    "Gestionnaire immobilier / Gestionnaire immobilière": (
+        "Property Manager",
+        "Agent immobilier / Agente immobilière",
+        "Gestionnaire de sinistres",
+    ),
+    "Graphiste": ("Motion Designer", "UX Designer", "Product Designer", "Community Manager"),
+    "HR Business Partner": (
+        "Responsable RH",
+        "Talent Acquisition Specialist",
+        "Change Manager",
+        "Recruteur / Recruteuse",
+    ),
+    "Infirmier / Infirmière": (
+        "Aide-soignant / Aide-soignante",
+        "Kinésithérapeute",
+        "Puériculteur / Puéricultrice",
+        "Médecin généraliste",
+    ),
+    "Ingénieur civil": (
+        "Architecte",
+        "Conducteur / Conductrice de travaux",
+        "Ingénieur industriel",
+        "Deviseur / Deviseuse",
+    ),
+    "Ingénieur DevOps": (
+        "Site Reliability Engineer",
+        "Cloud Engineer",
+        "Administrateur système",
+        "Architecte cloud",
+    ),
+    "Ingénieur en énergie": (
+        "Technicien HVAC",
+        "Ingénieur industriel",
+        "Ingénieur civil",
+        "Conseiller / Conseillère en prévention",
+    ),
+    "Ingénieur industriel": (
+        "Ingénieur qualité",
+        "Responsable de production",
+        "Ingénieur civil",
+        "Ingénieur en énergie",
+        "Électromécanicien / Électromécanicienne",
+    ),
+    "Ingénieur logiciel": (
+        "Software Engineer",
+        "Développeur Backend",
+        "Développeur Java",
+        "Architecte logiciel",
+    ),
+    "Ingénieur qualité": (
+        "Ingénieur industriel",
+        "Responsable de production",
+        "Conseiller / Conseillère en prévention",
+        "QA Engineer",
+    ),
+    "Ingénieur réseau": (
+        "Administrateur système",
+        "Analyste cybersécurité",
+        "Ingénieur DevOps",
+        "Cloud Engineer",
+    ),
+    "Instituteur / Institutrice": (
+        "Enseignant / Enseignante",
+        "Puériculteur / Puéricultrice",
+        "Éducateur / Éducatrice",
+    ),
+    "Journaliste": (
+        "Rédacteur / Rédactrice",
+        "Content Manager",
+        "Chargé / Chargée de communication",
+        "Monteur vidéo / Monteuse vidéo",
+    ),
+    "Juriste": ("Fiscaliste", "Compliance Officer", "Gestionnaire de sinistres", "Responsable RH"),
+    "Key Account Manager": ("Account Manager", "Sales Manager", "Business Developer"),
+    "Kinésithérapeute": ("Infirmier / Infirmière", "Logopède", "Psychologue"),
+    "Logopède": ("Psychologue", "Kinésithérapeute", "Instituteur / Institutrice"),
+    "Machine Learning Engineer": (
+        "Data Scientist",
+        "Data Engineer",
+        "Développeur Python",
+        "Software Engineer",
+    ),
+    "Magasinier / Magasinière": (
+        "Cariste",
+        "Préparateur / Préparatrice de commandes",
+        "Chauffeur poids lourd",
+        "Responsable logistique",
+    ),
+    "Marketing Manager": (
+        "Digital Marketer",
+        "Content Manager",
+        "Community Manager",
+        "Product Manager",
+        "Chargé / Chargée de communication",
+    ),
+    "Mécanicien / Mécanicienne": (
+        "Électromécanicien / Électromécanicienne",
+        "Technicien de maintenance",
+        "Opérateur / Opératrice de production",
+    ),
+    "Médecin généraliste": (
+        "Infirmier / Infirmière",
+        "Pharmacien / Pharmacienne",
+        "Psychologue",
+        "Kinésithérapeute",
+    ),
+    "Monteur vidéo / Monteuse vidéo": ("Motion Designer", "Journaliste", "Graphiste"),
+    "Motion Designer": ("Graphiste", "Monteur vidéo / Monteuse vidéo", "UX Designer"),
+    "Office Manager": (
+        "Assistant administratif / Assistante administrative",
+        "Employé administratif / Employée administrative",
+        "Réceptionniste",
+        "Coordinateur / Coordinatrice de projet",
+    ),
+    "Opérateur / Opératrice de production": (
+        "Technicien de maintenance",
+        "Magasinier / Magasinière",
+        "Cariste",
+        "Préparateur / Préparatrice de commandes",
+    ),
+    "Payroll Officer": (
+        "Responsable RH",
+        "Comptable",
+        "Employé administratif / Employée administrative",
+    ),
+    "Pharmacien / Pharmacienne": (
+        "Médecin généraliste",
+        "Infirmier / Infirmière",
+        "Ingénieur qualité",
+    ),
+    "Plombier / Plombière": (
+        "Chauffagiste",
+        "Technicien HVAC",
+        "Électricien / Électricienne",
+        "Technicien de maintenance",
+    ),
+    "Préparateur / Préparatrice de commandes": (
+        "Magasinier / Magasinière",
+        "Cariste",
+        "Opérateur / Opératrice de production",
+    ),
+    "Product Designer": ("UX Designer", "Graphiste", "Développeur Frontend", "Product Manager"),
+    "Product Manager": (
+        "Product Owner",
+        "Business Analyst",
+        "Chef de projet IT",
+        "Product Designer",
+        "Marketing Manager",
+    ),
+    "Product Owner": (
+        "Product Manager",
+        "Business Analyst",
+        "Scrum Master",
+        "Analyste fonctionnel",
+    ),
+    "Property Manager": (
+        "Gestionnaire immobilier / Gestionnaire immobilière",
+        "Agent immobilier / Agente immobilière",
+        "Office Manager",
+    ),
+    "Psychologue": (
+        "Assistant social / Assistante sociale",
+        "Logopède",
+        "Éducateur / Éducatrice",
+        "Kinésithérapeute",
+    ),
+    "Puériculteur / Puéricultrice": (
+        "Instituteur / Institutrice",
+        "Aide-soignant / Aide-soignante",
+        "Éducateur / Éducatrice",
+    ),
+    "QA Engineer": (
+        "Analyste fonctionnel",
+        "Développeur Full Stack",
+        "Ingénieur DevOps",
+        "Business Analyst",
+    ),
+    "Réceptionniste": (
+        "Agent d'accueil",
+        "Serveur / Serveuse",
+        "Assistant administratif / Assistante administrative",
+        "Office Manager",
+    ),
+    "Recruteur / Recruteuse": (
+        "Talent Acquisition Specialist",
+        "Responsable RH",
+        "HR Business Partner",
+    ),
+    "Rédacteur / Rédactrice": (
+        "Journaliste",
+        "Content Manager",
+        "Chargé / Chargée de communication",
+    ),
+    "Responsable de production": (
+        "Ingénieur industriel",
+        "Ingénieur qualité",
+        "Responsable logistique",
+        "Supply Chain Manager",
+    ),
+    "Responsable de rayon": (
+        "Gérant / Gérante de magasin",
+        "Vendeur / Vendeuse",
+        "Magasinier / Magasinière",
+    ),
+    "Responsable logistique": (
+        "Supply Chain Manager",
+        "Magasinier / Magasinière",
+        "Responsable de production",
+    ),
+    "Responsable RH": (
+        "HR Business Partner",
+        "Recruteur / Recruteuse",
+        "Payroll Officer",
+        "Talent Acquisition Specialist",
+    ),
+    "Sales Manager": (
+        "Key Account Manager",
+        "Business Developer",
+        "Account Manager",
+        "Gérant / Gérante de magasin",
+    ),
+    "Scrum Master": ("Product Owner", "Chef de projet IT", "Chef de projet", "Change Manager"),
+    "Serveur / Serveuse": (
+        "Cuisinier / Cuisinière",
+        "Réceptionniste",
+        "Vendeur / Vendeuse",
+        "Caissier / Caissière",
+    ),
+    "Site Reliability Engineer": (
+        "Ingénieur DevOps",
+        "Cloud Engineer",
+        "Administrateur système",
+        "Ingénieur réseau",
+    ),
+    "Software Engineer": (
+        "Développeur Python",
+        "Développeur Full Stack",
+        "Développeur Backend",
+        "Ingénieur logiciel",
+    ),
+    "Supply Chain Manager": (
+        "Responsable logistique",
+        "Responsable de production",
+        "Business Analyst",
+        "Data Analyst",
+    ),
+    "Talent Acquisition Specialist": (
+        "Recruteur / Recruteuse",
+        "HR Business Partner",
+        "Responsable RH",
+    ),
+    "Tech Lead": (
+        "Architecte logiciel",
+        "Software Engineer",
+        "Chef de projet IT",
+        "Développeur Full Stack",
+    ),
+    "Technicien de maintenance": (
+        "Électromécanicien / Électromécanicienne",
+        "Électricien / Électricienne",
+        "Technicien HVAC",
+        "Mécanicien / Mécanicienne",
+    ),
+    "Technicien helpdesk": ("Administrateur système", "Ingénieur réseau", "Consultant IT"),
+    "Technicien HVAC": (
+        "Chauffagiste",
+        "Plombier / Plombière",
+        "Technicien de maintenance",
+        "Ingénieur en énergie",
+    ),
+    "UX Designer": ("Product Designer", "Développeur Frontend", "Graphiste", "Product Owner"),
+    "Vendeur / Vendeuse": (
+        "Caissier / Caissière",
+        "Responsable de rayon",
+        "Délégué commercial / Déléguée commerciale",
+        "Gérant / Gérante de magasin",
+    ),
+}
+
+PROVINCES: tuple[str, ...] = (
+    "Bruxelles",
+    "Brabant wallon",
+    "Brabant flamand",
+    "Hainaut",
+    "Liège",
+    "Namur",
+    "Luxembourg",
+    "Anvers",
+    "Flandre-Occidentale",
+    "Flandre-Orientale",
+    "Limbourg",
+)
+
+# (name, province). French exonyms for Flemish communes; Louvain-la-Neuve and Diegem are
+# localities (sections of Ottignies-Louvain-la-Neuve and Machelen) kept as job hubs.
+CITIES: tuple[tuple[str, str], ...] = (
+    ("Aarschot", "Brabant flamand"),
+    ("Alost", "Flandre-Orientale"),
+    ("Andenne", "Namur"),
+    ("Anderlecht", "Bruxelles"),
+    ("Ans", "Liège"),
+    ("Anvers", "Anvers"),
+    ("Arlon", "Luxembourg"),
+    ("Asse", "Brabant flamand"),
+    ("Ath", "Hainaut"),
+    ("Aubange", "Luxembourg"),
+    ("Audenarde", "Flandre-Orientale"),
+    ("Auderghem", "Bruxelles"),
+    ("Awans", "Liège"),
+    ("Aywaille", "Liège"),
+    ("Bastogne", "Luxembourg"),
+    ("Berchem-Sainte-Agathe", "Bruxelles"),
+    ("Beringen", "Limbourg"),
+    ("Binche", "Hainaut"),
+    ("Bouillon", "Luxembourg"),
+    ("Boussu", "Hainaut"),
+    ("Braine-l'Alleud", "Brabant wallon"),
+    ("Braine-le-Château", "Brabant wallon"),
+    ("Braine-le-Comte", "Hainaut"),
+    ("Brasschaat", "Anvers"),
+    ("Bruges", "Flandre-Occidentale"),
+    ("Bruxelles", "Bruxelles"),
+    ("Charleroi", "Hainaut"),
+    ("Châtelet", "Hainaut"),
+    ("Chaudfontaine", "Liège"),
+    ("Chaumont-Gistoux", "Brabant wallon"),
+    ("Chimay", "Hainaut"),
+    ("Ciney", "Namur"),
+    ("Colfontaine", "Hainaut"),
+    ("Comines-Warneton", "Hainaut"),
+    ("Courcelles", "Hainaut"),
+    ("Court-Saint-Étienne", "Brabant wallon"),
+    ("Courtrai", "Flandre-Occidentale"),
+    ("Couvin", "Namur"),
+    ("Deinze", "Flandre-Orientale"),
+    ("Diegem", "Brabant flamand"),
+    ("Diepenbeek", "Limbourg"),
+    ("Diest", "Brabant flamand"),
+    ("Dilbeek", "Brabant flamand"),
+    ("Dinant", "Namur"),
+    ("Drogenbos", "Brabant flamand"),
+    ("Durbuy", "Luxembourg"),
+    ("Eeklo", "Flandre-Orientale"),
+    ("Éghezée", "Namur"),
+    ("Enghien", "Hainaut"),
+    ("Esneux", "Liège"),
+    ("Etterbeek", "Bruxelles"),
+    ("Eupen", "Liège"),
+    ("Evere", "Bruxelles"),
+    ("Evergem", "Flandre-Orientale"),
+    ("Flémalle", "Liège"),
+    ("Fléron", "Liège"),
+    ("Fleurus", "Hainaut"),
+    ("Fontaine-l'Évêque", "Hainaut"),
+    ("Forest", "Bruxelles"),
+    ("Fosses-la-Ville", "Namur"),
+    ("Frameries", "Hainaut"),
+    ("Furnes", "Flandre-Occidentale"),
+    ("Gand", "Flandre-Orientale"),
+    ("Ganshoren", "Bruxelles"),
+    ("Geel", "Anvers"),
+    ("Gembloux", "Namur"),
+    ("Genappe", "Brabant wallon"),
+    ("Genk", "Limbourg"),
+    ("Grâce-Hollogne", "Liège"),
+    ("Grammont", "Flandre-Orientale"),
+    ("Grez-Doiceau", "Brabant wallon"),
+    ("Grimbergen", "Brabant flamand"),
+    ("Hal", "Brabant flamand"),
+    ("Hannut", "Liège"),
+    ("Harelbeke", "Flandre-Occidentale"),
+    ("Hasselt", "Limbourg"),
+    ("Heist-op-den-Berg", "Anvers"),
+    ("Herentals", "Anvers"),
+    ("Herstal", "Liège"),
+    ("Herve", "Liège"),
+    ("Heusden-Zolder", "Limbourg"),
+    ("Houthalen-Helchteren", "Limbourg"),
+    ("Huy", "Liège"),
+    ("Ittre", "Brabant wallon"),
+    ("Ixelles", "Bruxelles"),
+    ("Izegem", "Flandre-Occidentale"),
+    ("Jemeppe-sur-Sambre", "Namur"),
+    ("Jette", "Bruxelles"),
+    ("Jodoigne", "Brabant wallon"),
+    ("Knokke-Heist", "Flandre-Occidentale"),
+    ("Koekelberg", "Bruxelles"),
+    ("Kontich", "Anvers"),
+    ("Kraainem", "Brabant flamand"),
+    ("La Hulpe", "Brabant wallon"),
+    ("La Louvière", "Hainaut"),
+    ("Lasne", "Brabant wallon"),
+    ("Leeuw-Saint-Pierre", "Brabant flamand"),
+    ("Lessines", "Hainaut"),
+    ("Leuze-en-Hainaut", "Hainaut"),
+    ("Libramont-Chevigny", "Luxembourg"),
+    ("Liège", "Liège"),
+    ("Lierre", "Anvers"),
+    ("Linkebeek", "Brabant flamand"),
+    ("Lokeren", "Flandre-Orientale"),
+    ("Lommel", "Limbourg"),
+    ("Louvain", "Brabant flamand"),
+    ("Louvain-la-Neuve", "Brabant wallon"),
+    ("Maaseik", "Limbourg"),
+    ("Maasmechelen", "Limbourg"),
+    ("Machelen", "Brabant flamand"),
+    ("Malines", "Anvers"),
+    ("Malmedy", "Liège"),
+    ("Manage", "Hainaut"),
+    ("Marche-en-Famenne", "Luxembourg"),
+    ("Menin", "Flandre-Occidentale"),
+    ("Mol", "Anvers"),
+    ("Molenbeek-Saint-Jean", "Bruxelles"),
+    ("Mons", "Hainaut"),
+    ("Mont-Saint-Guibert", "Brabant wallon"),
+    ("Morlanwelz", "Hainaut"),
+    ("Mortsel", "Anvers"),
+    ("Mouscron", "Hainaut"),
+    ("Namur", "Namur"),
+    ("Neufchâteau", "Luxembourg"),
+    ("Ninove", "Flandre-Orientale"),
+    ("Nivelles", "Brabant wallon"),
+    ("Ostende", "Flandre-Occidentale"),
+    ("Ottignies-Louvain-la-Neuve", "Brabant wallon"),
+    ("Oupeye", "Liège"),
+    ("Overijse", "Brabant flamand"),
+    ("Péruwelz", "Hainaut"),
+    ("Perwez", "Brabant wallon"),
+    ("Philippeville", "Namur"),
+    ("Quaregnon", "Hainaut"),
+    ("Rebecq", "Brabant wallon"),
+    ("Renaix", "Flandre-Orientale"),
+    ("Rhode-Saint-Genèse", "Brabant flamand"),
+    ("Rixensart", "Brabant wallon"),
+    ("Rochefort", "Namur"),
+    ("Roulers", "Flandre-Occidentale"),
+    ("Saint-Ghislain", "Hainaut"),
+    ("Saint-Gilles", "Bruxelles"),
+    ("Saint-Hubert", "Luxembourg"),
+    ("Saint-Josse-ten-Noode", "Bruxelles"),
+    ("Saint-Nicolas", "Flandre-Orientale"),
+    ("Saint-Nicolas", "Liège"),
+    ("Saint-Trond", "Limbourg"),
+    ("Saint-Vith", "Liège"),
+    ("Sambreville", "Namur"),
+    ("Schaerbeek", "Bruxelles"),
+    ("Schoten", "Anvers"),
+    ("Seneffe", "Hainaut"),
+    ("Seraing", "Liège"),
+    ("Soignies", "Hainaut"),
+    ("Soumagne", "Liège"),
+    ("Spa", "Liège"),
+    ("Termonde", "Flandre-Orientale"),
+    ("Tervuren", "Brabant flamand"),
+    ("Thuin", "Hainaut"),
+    ("Tirlemont", "Brabant flamand"),
+    ("Tournai", "Hainaut"),
+    ("Tubize", "Brabant wallon"),
+    ("Turnhout", "Anvers"),
+    ("Uccle", "Bruxelles"),
+    ("Verviers", "Liège"),
+    ("Vielsalm", "Luxembourg"),
+    ("Vilvorde", "Brabant flamand"),
+    ("Virton", "Luxembourg"),
+    ("Visé", "Liège"),
+    ("Walcourt", "Namur"),
+    ("Waregem", "Flandre-Occidentale"),
+    ("Waremme", "Liège"),
+    ("Waterloo", "Brabant wallon"),
+    ("Watermael-Boitsfort", "Bruxelles"),
+    ("Wavre", "Brabant wallon"),
+    ("Wemmel", "Brabant flamand"),
+    ("Wevelgem", "Flandre-Occidentale"),
+    ("Wezembeek-Oppem", "Brabant flamand"),
+    ("Woluwe-Saint-Lambert", "Bruxelles"),
+    ("Woluwe-Saint-Pierre", "Bruxelles"),
+    ("Ypres", "Flandre-Occidentale"),
+    ("Zaventem", "Brabant flamand"),
+)
+
+_FOLDED_TITLES: tuple[tuple[str, str], ...] = tuple((t, _fold(t)) for t in JOB_TITLES)
+_FOLDED_CITIES: tuple[tuple[tuple[str, str], str], ...] = tuple(
+    (city, _fold(city[0])) for city in CITIES
+)
+
+
+def related_titles(titles: Iterable[str], *, limit: int = 8) -> list[str]:
+    """Related titles for the picked ones (round-robin), minus those already picked.
+
+    A free-text title unknown to the list contributes nothing."""
+    picked = list(titles)
+    seen: set[str] = set(picked)
+    pools = [RECOMMENDATIONS.get(title, ()) for title in picked]
+    result: list[str] = []
+    for index in range(max((len(pool) for pool in pools), default=0)):
+        for pool in pools:
+            if index >= len(pool) or pool[index] in seen:
+                continue
+            seen.add(pool[index])
+            result.append(pool[index])
+            if len(result) >= limit:
+                return result
+    return result
+
+
+def search_titles(query: str, *, limit: int = 8) -> list[str]:
+    """Accent- and case-insensitive title search; prefix matches come first."""
+    needle = _fold(query).strip()
+    if not needle:
+        return []
+    ranked: list[tuple[int, int, str]] = []
+    for position, (title, folded) in enumerate(_FOLDED_TITLES):
+        rank = _rank(needle, folded)
+        if rank is not None:
+            ranked.append((rank, position, title))
+    ranked.sort()
+    return [title for _, _, title in ranked[:limit]]
+
+
+def search_cities(query: str, *, limit: int = 8) -> list[tuple[str, str]]:
+    """Accent- and case-insensitive city search; prefix matches come first."""
+    needle = _fold(query).strip()
+    if not needle:
+        return []
+    ranked: list[tuple[int, int, tuple[str, str]]] = []
+    for position, (city, folded) in enumerate(_FOLDED_CITIES):
+        rank = _rank(needle, folded)
+        if rank is not None:
+            ranked.append((rank, position, city))
+    ranked.sort()
+    return [city for _, _, city in ranked[:limit]]

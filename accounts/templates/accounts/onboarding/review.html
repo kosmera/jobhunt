@@ -1,0 +1,29 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% block step %}
+  <div class="onb__form">
+    <span class="eyebrow onb__eyebrow">Presque fini</span>
+    <h1 class="onb__title">{{ step.title }}</h1>
+    <p class="onb__lede">{{ step.lede }}</p>
+    <dl class="review">
+      {% for row in rows %}
+        <div class="review__row">
+          <dt class="review__label eyebrow">{{ row.label }}</dt>
+          <dd class="review__value{% if row.skipped %} review__skipped{% endif %}">{{ row.value }}</dd>
+          <form method="post" class="review__edit">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="edit">
+            <button type="submit" name="target" value="{{ row.slug }}" class="icon-btn" aria-label="Modifier : {{ row.label }}">
+              <svg aria-hidden="true"><use href="#i-pencil"></use></svg>
+            </button>
+          </form>
+        </div>
+      {% endfor %}
+    </dl>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <div class="onb__actions">
+        <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">C'est bon pour moi</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

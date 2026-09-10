@@ -1,0 +1,24 @@
+{% comment %}
+  A chips field: the text input fields.js turns into a combobox, the chosen
+  entries as chips — each a checked, visually hidden checkbox named ``name``,
+  so that without JavaScript unticking one removes it on submit — and, when
+  given, the ``recommended`` entries as « Postes proches » buttons. The row is
+  written without inner whitespace so that `:empty` hides it when bare.
+{% endcomment %}
+<div class="field">
+  <label class="field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+  {{ field }}
+  {% if field.help_text %}<span class="field__help">{{ field.help_text }}</span>{% endif %}
+  {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+  <div class="chip-row" data-chips-row="{{ name }}">{% for entry in picked %}<label class="chip chip--picked"><input type="checkbox" class="visually-hidden" name="{{ name }}" value="{{ entry }}" checked>{{ entry }}<button type="button" class="chip__remove" aria-label="Retirer {{ entry }}"><svg aria-hidden="true"><use href="#i-x"></use></svg></button></label>{% endfor %}</div>
+  {% if recommended %}
+    <div class="chips-recommended">
+      <p class="eyebrow">Postes proches</p>
+      <div class="chip-row">
+        {% for entry in recommended %}
+          <button type="button" class="chip" data-chips-add="{{ entry }}" data-chips-for="{{ name }}" aria-label="Ajouter {{ entry }}"><svg aria-hidden="true"><use href="#i-plus"></use></svg>{{ entry }}</button>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+</div>

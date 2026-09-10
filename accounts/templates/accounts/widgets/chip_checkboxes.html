@@ -1,0 +1,6 @@
+{% comment %}
+  ``accounts.forms.ChipCheckboxes``: one toggle chip per box, the box inside
+  its label (visually hidden, so the chip draws the state with :has(:checked)).
+{% endcomment %}<div class="chip-row">
+{% for group, options, index in widget.optgroups %}{% for option in options %}  <label class="chip chip--toggle">{% include "django/forms/widgets/input.html" with widget=option %}<span>{{ option.label }}</span></label>
+{% endfor %}{% endfor %}</div>

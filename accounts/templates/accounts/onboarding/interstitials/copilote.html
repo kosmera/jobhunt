@@ -1,0 +1,11 @@
+{% extends "accounts/onboarding/interstitial.html" %}
+{% block illustration %}{% include "accounts/onboarding/illustrations/experience.html" %}{% endblock %}
+{% block body %}
+  <ul class="check-list">
+    <li><svg aria-hidden="true"><use href="#i-check"></use></svg>Évaluer si une offre te correspond, et expliquer pourquoi</li>
+    <li><svg aria-hidden="true"><use href="#i-check"></use></svg>Repérer ce qui manque à ton dossier pour une offre</li>
+    <li><svg aria-hidden="true"><use href="#i-check"></use></svg>Préparer un CV adapté à l'offre — tu relis, tu décides</li>
+    <li><svg aria-hidden="true"><use href="#i-check"></use></svg>Signaler des pistes que tu n'aurais pas vues</li>
+  </ul>
+{% endblock %}
+{% block foot %}<p class="onb__note">Extension JobHunt-AI, activée sur cette instance par son administrateur.</p>{% endblock %}

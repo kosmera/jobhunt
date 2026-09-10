@@ -1,0 +1,9 @@
+{% extends "accounts/onboarding/interstitial.html" %}
+{% load tracker_extras %}
+{% block title %}Reprise du suivi — JobHunt{% endblock %}
+{% block illustration %}{% include "accounts/onboarding/illustrations/pace.html" %}{% endblock %}
+{% block heading %}<span class="eyebrow onb__eyebrow">Reprise du suivi</span>{{ waiting.applications }} candidature{{ waiting.applications|pluralize_fr }} t'attend{{ waiting.applications|pluralize_fr:"ent" }}{% endblock %}
+{% block body %}
+  <p>Le suivi existant est rattaché à ce profil{% if waiting.documents %} ({{ waiting.documents }} document{{ waiting.documents|pluralize_fr }} compris){% endif %}. Quelques questions pour le remettre en route — rien n'est à ressaisir.</p>
+{% endblock %}
+{% block button %}Reprendre{% endblock %}

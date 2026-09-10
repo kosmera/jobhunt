@@ -63,7 +63,7 @@ uv run manage.py createsuperuser
 | **Candidatures** | Le tableau complet, avec recherche instantanée et filtres. La recherche porte aussi sur les analyses et tes notes : tape `Terraform` pour retrouver les trois offres où il te manque. |
 | **Documents** | Les 4 CV génériques d'un côté, les CV adaptés rattachés à leur offre de l'autre. |
 | **Analyse** | Les lacunes à combler, les plateformes explorées, les offres écartées (récupérables en un clic), et un nuage compatibilité × distance. |
-| **Réglages** | Ton profil (nom, titre, point de départ, e-mail), tes préférences (délais de relance et de signalement, rayon, langue de CV), ton mot de passe, et la suppression du compte. Accessible depuis ton nom, en bas de la barre latérale. |
+| **Réglages** | Ton profil (nom, titre, point de départ, e-mail), ce que tu cherches (les réponses du parcours Bienvenue : postes, secteurs, expérience, formation, contrats, mode de travail, villes, salaire, horizon, situation), tes préférences (délais de relance et de signalement, rayon, langue de CV), ton mot de passe, et la suppression du compte. Accessible depuis ton nom, en bas de la barre latérale. |
 
 ### Automatismes
 
@@ -128,17 +128,46 @@ d'entrer, choisies par `JOBHUNT_AUTH_MODE` :
 
 | Mode | Quand | Comment on entre |
 | --- | --- | --- |
-| `local` (défaut si `JOBHUNT_DEBUG=1`) | ta machine | Aucun mot de passe. Pas de profil → page **Bienvenue** (nom, titre, point de départ). Un profil → connecté d'office. Plusieurs → on choisit dans une liste, et « Changer de profil » en bas de la barre latérale y ramène. |
-| `accounts` (défaut si `JOBHUNT_DEBUG=0`) | une instance partagée | **Connexion** (e-mail ou identifiant + mot de passe) et **Inscription**. `JOBHUNT_SIGNUP_OPEN=0` ferme les inscriptions ; un compte créé autrement (`createsuperuser`) passe par la page Bienvenue à sa première visite. |
+| `local` (défaut si `JOBHUNT_DEBUG=1`) | ta machine | Aucun mot de passe. Pas de profil → parcours **Bienvenue** (une vingtaine d'écrans : situation, postes visés, secteurs, mode de travail, salaire, CV… ; le nom est demandé juste avant le CV, puis le tableau de bord). Un profil → connecté d'office. Plusieurs → on choisit dans une liste, et « Changer de profil » en bas de la barre latérale y ramène. |
+| `accounts` (défaut si `JOBHUNT_DEBUG=0`) | une instance partagée | **Connexion** (e-mail ou identifiant + mot de passe) et **Inscription**, qui crée le compte et enchaîne sur le parcours Bienvenue. Un visiteur anonyme peut aussi commencer par le parcours : le compte se crée juste avant le CV. `JOBHUNT_SIGNUP_OPEN=0` ferme les inscriptions et renvoie un visiteur anonyme vers la connexion ; un compte créé autrement (`createsuperuser`) passe par le parcours à sa première visite. |
+
+### Le parcours Bienvenue
+
+Un écran par question, dans l'ordre : situation, outils d'IA déjà essayés,
+principale difficulté, attentes, postes visés, secteurs, expérience, formation,
+type de contrat, mode de travail, villes et rayon (sauf en télétravail), salaire
+minimum, horizon, puis un bilan à relire. Le nom (ou le compte, en mode
+`accounts`) est demandé ensuite, juste avant le CV : c'est le premier moment où
+une ligne doit exister en base. Les réponses restent en session jusqu'au dernier
+écran — un parcours interrompu reprend au même endroit sur le même navigateur,
+et repart du début ailleurs, le nom déjà connu.
+
+Ce que chaque réponse alimente :
+
+- **Profil** : le premier poste visé devient le titre, la première ville le
+  point de départ (s'ils étaient vides) ;
+- **Préférences** : le rayon de recherche, la langue du CV, et une relance
+  proposée à 7 jours au lieu de 10 pour qui a besoin d'un poste rapidement ;
+- **Profil de recherche** : postes, secteurs, expérience, formation, contrats,
+  mode de travail, villes, salaire, horizon, et les réponses de contexte —
+  tout se modifie ensuite dans **Réglages**, section « Ce que tu cherches » ;
+- **Documents** : le CV téléversé devient le CV de base de la bibliothèque. Le
+  fichier ne quitte jamais l'espace du profil ; seule une version anonymisée du
+  texte est transmise à une extension qui écoute, et l'écran le dit tel quel —
+  pas de pourcentage inventé.
+
+Les états du parcours sont une machine à états finis (`accounts/onboarding/`) :
+un tableau d'étapes avec des gardes, vérifié à l'import et par les tests ; le
+bouton Retour, la modification depuis le bilan et le compteur en découlent.
 
 ### Reprise d'une base existante
 
 La migration qui a introduit les comptes rattache tout ce qui existait déjà à
 un profil : le seul compte présent s'il y en a un, sinon un compte `local`
 sans mot de passe créé pour l'occasion. En mode local, le premier compte
-reçoit aussi l'accès administrateur. À la visite suivante, la page
-Bienvenue annonce combien de candidatures attendent et complète ce compte —
-rien n'est à ressaisir.
+reçoit aussi l'accès administrateur. À la visite suivante, le parcours
+Bienvenue s'ouvre sur un écran « reprise » qui annonce combien de
+candidatures attendent, puis complète ce compte — rien n'est à ressaisir.
 
 ### Passer d'une base locale au mode comptes
 

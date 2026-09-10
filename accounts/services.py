@@ -2,16 +2,38 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from django.contrib import auth
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.text import slugify
 
 from accounts import conf
-from accounts.models import Preferences, Profile
+from accounts.models import (
+    MAX_CITIES,
+    MAX_JOB_TITLES,
+    MAX_LIST_ENTRY_LENGTH,
+    AiToolsUsed,
+    Challenge,
+    EducationLevel,
+    EmploymentStatus,
+    ExperienceLevel,
+    HelpWanted,
+    Industry,
+    Preferences,
+    Profile,
+    SalaryPeriod,
+    SearchProfile,
+    StartTimeline,
+    WorkType,
+    default_follow_up_days,
+)
 from rls import as_user
+from tracker.models import Language, WorkMode
 
 #: Username of the password-less account that the ownership migration creates
 #: to hold data recorded before accounts existed.
@@ -21,6 +43,10 @@ LOCAL_USERNAME = "local"
 #: password (local mode). ``auth.login`` needs one; ``ModelBackend`` is the
 #: one that will later answer ``has_perm``/``get_user`` for that session.
 LOCAL_BACKEND = "django.contrib.auth.backends.ModelBackend"
+
+#: The follow-up delay proposed to someone who needs a job soon, when the
+#: preference still holds the environment default.
+URGENT_FOLLOW_UP_DAYS = 7
 
 
 def owned_or_404(queryset, user, **kwargs):
@@ -42,6 +68,18 @@ def profile_for(user) -> Profile:
 def preferences_for(user) -> Preferences:
     preferences, _ = Preferences.objects.get_or_create(user=user)
     return preferences
+
+
+def search_profile_for(user) -> SearchProfile:
+    search, _ = SearchProfile.objects.get_or_create(user=user)
+    return search
+
+
+def search_profile_or_blank(user) -> SearchProfile:
+    """The account's search profile, or an unsaved blank one when the account
+    never went through the questionnaire — a page that only reads it must not
+    write a row."""
+    return SearchProfile.objects.filter(user=user).first() or SearchProfile(user=user)
 
 
 def has_premium(user) -> bool:
@@ -122,6 +160,115 @@ def complete_onboarding(
     profile.onboarded_at = profile.onboarded_at or timezone.now()
     profile.save()
     preferences_for(user)
+    return profile
+
+
+def name_profile(user, display_name: str) -> Profile:
+    """Set the display name only — the rest of onboarding is still to come."""
+    profile = profile_for(user)
+    profile.display_name = display_name.strip()
+    profile.save()
+    return profile
+
+
+def _strings(value: Any, *, limit: int, allowed: set[str] | None = None) -> list[str]:
+    """A bounded, de-duplicated list of non-empty strings out of a JSON value."""
+    if not isinstance(value, list):
+        return []
+    kept: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str):
+            continue
+        entry = entry.strip()[:MAX_LIST_ENTRY_LENGTH]
+        if not entry or entry in kept or (allowed is not None and entry not in allowed):
+            continue
+        kept.append(entry)
+        if len(kept) == limit:
+            break
+    return kept
+
+
+def _choice(value: Any, choices: type[models.TextChoices]) -> str:
+    return value if isinstance(value, str) and value in choices.values else ""
+
+
+def search_profile_fields(answers: Mapping[str, Any]) -> dict[str, Any]:
+    """Pure mapping answers → ``SearchProfile`` field values.
+
+    Defensive on purpose: the answers travelled through a session. Unknown
+    choice values become ``""`` or leave the lists, the lists are bounded,
+    remote work clears the cities, "any industry" clears the sectors, "any"
+    stands alone among the work types, a missing salary has no period.
+    """
+    work_mode = _choice(answers.get("work_mode"), WorkMode) or WorkMode.UNKNOWN
+    any_industry = bool(answers.get("any_industry"))
+    work_types = _strings(answers.get("work_types"), limit=len(WorkType.values), allowed=set(WorkType.values))
+    if WorkType.ANY in work_types:
+        work_types = [WorkType.ANY]
+    salary_min = answers.get("salary_min")
+    if not isinstance(salary_min, int) or isinstance(salary_min, bool) or salary_min <= 0:
+        salary_min = None
+    salary_period = _choice(answers.get("salary_period"), SalaryPeriod) if salary_min else ""
+    if salary_period == "":
+        salary_min = None
+    return {
+        "employment_status": _choice(answers.get("employment_status"), EmploymentStatus),
+        "ai_tools_used": _choice(answers.get("ai_tools_used"), AiToolsUsed),
+        "challenge": _choice(answers.get("challenge"), Challenge),
+        "help_wanted": _strings(answers.get("help_wanted"), limit=len(HelpWanted.values), allowed=set(HelpWanted.values)),
+        "job_titles": _strings(answers.get("job_titles"), limit=MAX_JOB_TITLES),
+        "industries": [] if any_industry else _strings(answers.get("industries"), limit=len(Industry.values), allowed=set(Industry.values)),
+        "any_industry": any_industry,
+        "experience_level": _choice(answers.get("experience_level"), ExperienceLevel),
+        "education_level": _choice(answers.get("education_level"), EducationLevel),
+        "work_types": work_types,
+        "work_mode": work_mode,
+        "cities": [] if work_mode == WorkMode.REMOTE else _strings(answers.get("cities"), limit=MAX_CITIES),
+        "salary_min": salary_min,
+        "salary_period": salary_period,
+        "start_timeline": _choice(answers.get("start_timeline"), StartTimeline),
+    }
+
+
+def finish_onboarding(user, answers: Mapping[str, Any]) -> Profile:
+    """Turn the questionnaire into rows. One transaction: onboarded with everything, or not at all.
+
+    ``complete_onboarding`` keeps its signature (the extension calls it) and
+    stays idempotent; the headline and the home town it is given are the
+    existing ones when the profile already had them, else the first title and
+    the first city answered.
+    """
+    with transaction.atomic():
+        profile = profile_for(user)
+        preferences = preferences_for(user)
+        fields = search_profile_fields(answers)
+        titles: list[str] = fields["job_titles"]
+        cities: list[str] = fields["cities"]
+        display_name = answers.get("display_name")
+        profile = complete_onboarding(
+            user,
+            display_name=display_name if isinstance(display_name, str) and display_name.strip() else profile.display_name,
+            headline=profile.headline or (titles[0] if titles else ""),
+            location=profile.location or (cities[0] if cities else ""),
+            phone=profile.phone,
+        )
+        radius = answers.get("search_radius_km")
+        if isinstance(radius, int) and not isinstance(radius, bool) and 5 <= radius <= 300:
+            preferences.search_radius_km = radius
+        language = answers.get("cv_language")
+        if isinstance(language, str) and language in Language.values:
+            preferences.default_cv_language = language
+        if (
+            fields["employment_status"] == EmploymentStatus.UNEMPLOYED_URGENT
+            and preferences.follow_up_days == default_follow_up_days()
+        ):
+            preferences.follow_up_days = min(preferences.follow_up_days, URGENT_FOLLOW_UP_DAYS)
+        preferences.save()
+        search = search_profile_for(user)
+        for name, value in fields.items():
+            setattr(search, name, value)
+        search.full_clean()
+        search.save()
     return profile
 
 

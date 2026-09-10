@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load tracker_extras %}
+{% load static tracker_extras %}
 
 {% block title %}Réglages — JobHunt{% endblock %}
 
@@ -8,12 +8,12 @@
     <span class="eyebrow">Ton compte</span>
     <h1 class="page-title">Réglages</h1>
     <p class="page-lede">
-      Qui tu es, d'où tu cherches, et les délais que le suivi applique tout seul.
+      Qui tu es, ce que tu cherches, et les délais que le suivi applique tout seul.
     </p>
   </div>
 
-  <div class="cols cols--2" style="align-items:start">
-    <div class="stack">
+  <div class="stack">
+    <div class="cols cols--2" style="align-items:start">
       <section class="panel" id="profil">
         <div class="panel__head">
           <span class="eyebrow">Profil</span>
@@ -37,36 +37,6 @@
         </form>
       </section>
 
-      <section class="panel" id="mot-de-passe">
-        <div class="panel__head">
-          <span class="eyebrow">{% if has_password %}Mot de passe{% else %}Définir un mot de passe{% endif %}</span>
-          {% if is_local %}
-            <span class="panel__actions meta">facultatif en local</span>
-          {% endif %}
-        </div>
-        <form method="post" action="{% url 'accounts:settings_section' 'mot-de-passe' %}" class="panel__body" novalidate>
-          {% csrf_token %}
-          {% if is_local %}
-            <p class="meta" style="margin-bottom:.9rem">
-              Sur cette machine personne ne te le demandera. Il ne sert qu'à passer un jour en
-              mode comptes, avec l'e-mail ci-contre comme identifiant.
-            </p>
-          {% endif %}
-          {% for error in password_form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
-          {% for field in password_form %}
-            {% include "tracker/partials/field.html" with field=field %}
-          {% endfor %}
-          <div class="btn-row" style="justify-content:flex-end">
-            <button type="submit" class="btn btn--sm">
-              <svg aria-hidden="true"><use href="#i-check"></use></svg>
-              {% if has_password %}Changer le mot de passe{% else %}Définir le mot de passe{% endif %}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
-
-    <div class="stack">
       <section class="panel" id="preferences">
         <div class="panel__head"><span class="eyebrow">Préférences</span></div>
         <form method="post" action="{% url 'accounts:settings_section' 'preferences' %}" class="panel__body" novalidate>
@@ -81,6 +51,112 @@
           <div class="btn-row" style="justify-content:flex-end">
             <button type="submit" class="btn btn--primary btn--sm">
               <svg aria-hidden="true"><use href="#i-check"></use></svg> Enregistrer les préférences
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <section class="panel" id="recherche">
+      <div class="panel__head">
+        <span class="eyebrow">Ce que tu cherches</span>
+        <span class="panel__actions meta">{% if search_known %}tes réponses du parcours Bienvenue, modifiables à tout moment{% else %}les questions du parcours Bienvenue, à remplir quand tu veux{% endif %}</span>
+      </div>
+      <form method="post" action="{% url 'accounts:settings_section' 'recherche' %}" class="panel__body" novalidate>
+        {% csrf_token %}
+        {% for error in search_form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+
+        <fieldset class="form-section">
+          <legend class="eyebrow">Postes et secteurs</legend>
+          {% include "accounts/partials/chips_field.html" with field=search_form.titles_text picked=search_form.titles name="titles" recommended=search.recommended %}
+          {% include "accounts/partials/choice_group.html" with field=search_form.industries %}
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend class="eyebrow">Expérience et contrat</legend>
+          <div class="form-grid form-grid--2">
+            {% include "tracker/partials/field.html" with field=search_form.experience_level %}
+            {% include "tracker/partials/field.html" with field=search_form.education_level %}
+          </div>
+          {% include "accounts/partials/choice_group.html" with field=search_form.work_types %}
+          <div class="form-grid form-grid--2">
+            {% include "tracker/partials/field.html" with field=search_form.work_mode %}
+          </div>
+          {% include "accounts/partials/chips_field.html" with field=search_form.cities_text picked=search_form.cities name="cities" %}
+        </fieldset>
+
+        <fieldset class="form-section" data-salary>
+          <legend class="eyebrow">Salaire et horizon</legend>
+          <div class="form-grid form-grid--2">
+            <div class="field">
+              <label class="field__label" for="{{ search_form.salary_min.id_for_label }}">{{ search_form.salary_min.label }}</label>
+              {% with period=search_form.salary_period.value %}
+                <div class="segmented" role="radiogroup" aria-label="Période">
+                  {% for item in search.periods %}
+                    <label class="segmented__item">
+                      <input class="visually-hidden" type="radio" name="salary_period" value="{{ item.value }}" {% if item.value == period %}checked{% endif %}
+                             data-min="{{ item.min }}" data-max="{{ item.max }}" data-step="{{ item.step }}" data-ceiling="{{ item.ceiling }}" data-unit="{{ item.unit }}">
+                      <span>{{ item.label }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+              {% endwith %}
+              <div class="salary__amount salary__amount--compact">
+                {{ search_form.salary_min }}
+                <span class="salary__unit" data-salary-unit>{{ search.unit }}</span>
+              </div>
+              <span class="field__help">{{ search_form.salary_min.help_text }}</span>
+              {% for error in search_form.salary_period.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+              {% for error in search_form.salary_min.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+            </div>
+            {% include "tracker/partials/field.html" with field=search_form.start_timeline %}
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend class="eyebrow">Ta situation</legend>
+          <div class="form-grid form-grid--2">
+            {% include "tracker/partials/field.html" with field=search_form.employment_status %}
+            {% include "tracker/partials/field.html" with field=search_form.challenge %}
+            {% include "tracker/partials/field.html" with field=search_form.ai_tools_used %}
+          </div>
+          {% include "accounts/partials/choice_group.html" with field=search_form.help_wanted %}
+        </fieldset>
+
+        <div class="btn-row" style="justify-content:flex-end">
+          <button type="submit" class="btn btn--primary btn--sm">
+            <svg aria-hidden="true"><use href="#i-check"></use></svg> Enregistrer ma recherche
+          </button>
+        </div>
+        {{ search.titles_suggestions|json_script:"titles-suggestions" }}
+        {{ search.cities_suggestions|json_script:"cities-suggestions" }}
+      </form>
+    </section>
+
+    <div class="cols cols--2" style="align-items:start">
+      <section class="panel" id="mot-de-passe">
+        <div class="panel__head">
+          <span class="eyebrow">{% if has_password %}Mot de passe{% else %}Définir un mot de passe{% endif %}</span>
+          {% if is_local %}
+            <span class="panel__actions meta">facultatif en local</span>
+          {% endif %}
+        </div>
+        <form method="post" action="{% url 'accounts:settings_section' 'mot-de-passe' %}" class="panel__body" novalidate>
+          {% csrf_token %}
+          {% if is_local %}
+            <p class="meta" style="margin-bottom:.9rem">
+              Sur cette machine personne ne te le demandera. Il ne sert qu'à passer un jour en
+              mode comptes, avec l'e-mail du profil comme identifiant.
+            </p>
+          {% endif %}
+          {% for error in password_form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+          {% for field in password_form %}
+            {% include "tracker/partials/field.html" with field=field %}
+          {% endfor %}
+          <div class="btn-row" style="justify-content:flex-end">
+            <button type="submit" class="btn btn--sm">
+              <svg aria-hidden="true"><use href="#i-check"></use></svg>
+              {% if has_password %}Changer le mot de passe{% else %}Définir le mot de passe{% endif %}
             </button>
           </div>
         </form>
@@ -106,3 +182,5 @@
     </div>
   </div>
 {% endblock %}
+
+{% block scripts %}<script src="{% static 'js/fields.js' %}" defer></script>{% endblock %}

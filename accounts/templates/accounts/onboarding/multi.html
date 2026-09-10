@@ -1,0 +1,20 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% block step %}
+  <form method="post" class="onb__form" data-requires-choice novalidate>
+    {% csrf_token %}
+    <fieldset class="onb__fieldset">
+      <legend class="onb__title">{{ step.title }}</legend>
+      {% if step.lede %}<p class="onb__lede">{{ step.lede }}</p>{% endif %}
+      {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+      {% for error in form.choice.errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
+      <div class="option-list">
+        {% with selected=form.choice.value %}
+          {% for option in options %}
+            {% include "accounts/onboarding/partials/option_card.html" with input_type="checkbox" name="choice" value=option.value label=option.label description=option.description selected=selected check_all=option.check_all %}
+          {% endfor %}
+        {% endwith %}
+      </div>
+    </fieldset>
+    {% include "accounts/onboarding/partials/actions.html" %}
+  </form>
+{% endblock %}

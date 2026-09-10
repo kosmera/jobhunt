@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from accounts import conf
-from accounts.models import Preferences, Profile
+from accounts.models import Preferences, Profile, SearchProfile
 
 
 @admin.register(Profile)
@@ -21,4 +21,11 @@ class PreferencesAdmin(admin.ModelAdmin):
     list_display = [
         "user", "stale_after_days", "follow_up_days", "search_radius_km", "default_cv_language",
     ]
+    autocomplete_fields = ["user"]
+
+
+@admin.register(SearchProfile)
+class SearchProfileAdmin(admin.ModelAdmin):
+    list_display = ["user", "work_mode", "salary_min", "salary_period", "start_timeline", "updated_at"]
+    search_fields = ["user__username", "user__email"]
     autocomplete_fields = ["user"]

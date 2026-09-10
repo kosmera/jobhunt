@@ -5,6 +5,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import Profile
+from accounts.onboarding.testing import walk
 from accounts.services import ensure_local_admin, has_premium
 from accounts.testing import make_user
 
@@ -12,7 +13,7 @@ from accounts.testing import make_user
 @override_settings(AUTH_MODE="local")
 class LocalAdminTests(TestCase):
     def test_onboarding_creates_an_administrator_without_a_paid_entitlement(self):
-        response = self.client.post(reverse("accounts:onboarding"), {"display_name": "Owner"})
+        response = walk(self.client, name="Owner")
         self.assertEqual(response.status_code, 302)
         user = User.objects.get()
         self.assertTrue(user.is_staff)

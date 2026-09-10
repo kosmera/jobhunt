@@ -32,7 +32,7 @@ from django.test import (
 from django.urls import reverse
 from openpyxl import Workbook
 
-from accounts.models import Preferences, Profile
+from accounts.models import Preferences, Profile, SearchProfile
 from accounts.testing import make_user
 from rls import checks, context, registry, sql, verify
 from rls.middleware import RowLevelSecurityMiddleware
@@ -122,6 +122,7 @@ class RegistryTests(SimpleTestCase):
             "auth.user",
             "accounts.profile",
             "accounts.preferences",
+            "accounts.searchprofile",
             "tracker.application",
             "tracker.document",
             "tracker.activityevent",
@@ -409,6 +410,7 @@ class PolicyTests(TestCase):
         cls.bob = make_user("Bob", username="bob")
         cls.alice_app = make_application(cls.alice, "Acme", "Ingénieure")
         cls.bob_app = make_application(cls.bob, "Globex", "Ingénieur")
+        SearchProfile.objects.create(user=cls.alice, job_titles=["Ingénieure"])
 
     def test_every_registered_table_carries_the_policy(self):
         report = verify.inspect(connection)
@@ -455,6 +457,7 @@ class PolicyTests(TestCase):
             self.assertEqual(ActivityEvent.objects.count(), 0)
             self.assertEqual(Profile.objects.count(), 0)
             self.assertEqual(Preferences.objects.count(), 0)
+            self.assertEqual(SearchProfile.objects.count(), 0)
             # Sign-in must be able to find the account.
             self.assertEqual(User.objects.count(), 2)
 
@@ -466,6 +469,7 @@ class PolicyTests(TestCase):
             self.assertEqual(ActivityEvent.objects.get().title, "Note Acme")
             self.assertEqual(list(User.objects.all()), [self.alice])
             self.assertEqual(Profile.objects.get().user, self.alice)
+            self.assertEqual(SearchProfile.objects.get().user, self.alice)
             with self.assertRaises(Application.DoesNotExist):
                 Application.objects.get(pk=self.bob_app.pk)
 

@@ -1,8 +1,7 @@
 {% extends "base.html" %}
 {% comment %}
-  Pages shown before there is a signed-in profile: no rail, no topbar, one
-  card in the middle of the survey sheet. The theme toggle stays so the page
-  matches the rest of the application from the very first screen.
+  The public entry flow shares the landing page's brand and the app's theme.
+  Authentication, onboarding and profile selection keep the same form blocks.
 {% endcomment %}
 
 {% block body %}
@@ -10,14 +9,25 @@
   <script>try { localStorage.removeItem("htmx-history-cache"); } catch (e) {}</script>
   <div class="auth">
     <div class="auth__top">
-      <div class="brand__mark">JobHunt<span>·</span></div>
+      {% include "tracker/partials/brand.html" %}
       <button type="button" class="icon-btn" data-theme-toggle aria-label="Changer de thème">
         <svg data-theme-icon="sun" aria-hidden="true"><use href="#i-sun"></use></svg>
         <svg data-theme-icon="moon" aria-hidden="true"><use href="#i-moon"></use></svg>
       </button>
     </div>
 
-    <main class="auth__card{% block auth_card_class %}{% endblock %}">
+    <div class="auth__layout">
+      <aside class="auth__intro" aria-label="Votre espace JobHunt">
+        <span class="eyebrow">Votre prochain chapitre</span>
+        <h2>Moins de dispersion.<br><em>Plus de perspectives.</em></h2>
+        <p>Les offres, les CV et les prochaines étapes, enfin au même endroit.</p>
+        <div class="auth__journey" aria-hidden="true">
+          <div><span class="auth__step-icon"><svg><use href="#i-rows"></use></svg></span><span>Les bonnes opportunités<small>Rassemblées dans un seul espace</small></span><svg><use href="#i-check"></use></svg></div>
+          <div><span class="auth__step-icon"><svg><use href="#i-file"></use></svg></span><span>Un dossier qui vous ressemble<small>Chaque document à sa place</small></span><svg><use href="#i-check"></use></svg></div>
+          <div><span class="auth__step-icon"><svg><use href="#i-arrow-right"></use></svg></span><span>Et maintenant, la suite<small>Un pas après l’autre.</small></span></div>
+        </div>
+      </aside>
+    <main id="main-content" tabindex="-1" class="auth__card{% block auth_card_class %}{% endblock %}">
       <span class="eyebrow">{% block auth_eyebrow %}{% endblock %}</span>
       <h1 class="auth__title">{% block auth_title %}{% endblock %}</h1>
       <p class="auth__lede">{% block auth_lede %}{% endblock %}</p>
@@ -30,6 +40,7 @@
 
       {% block auth_body %}{% endblock %}
     </main>
+    </div>
 
     <p class="auth__foot">{% block auth_foot %}{% endblock %}</p>
   </div>

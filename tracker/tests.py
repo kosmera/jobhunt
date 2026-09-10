@@ -459,16 +459,22 @@ class PageRenderTests(OwnedTestCase):
                         "un <svg> masqué par l'attribut hidden reste visible",
                     )
 
-    def test_the_favicon_data_uri_carries_usable_colours(self):
-        """`urlencode` escapes "#" itself — pre-escaping it yields %2523."""
+    def test_the_favicon_asset_carries_usable_colours(self):
+        """The shared brand mark must resolve to an SVG with valid colours."""
+        from pathlib import Path
         import re
-        import urllib.parse
+
+        from django.contrib.staticfiles import finders
+        from django.templatetags.static import static
 
         html = self.client.get(reverse("tracker:dashboard")).content.decode()
         match = re.search(r'<link rel="icon" href="([^"]+)"', html)
         assert match is not None
         href = match.group(1)
-        svg = urllib.parse.unquote(href)
+        self.assertEqual(href, static("images/landing-mark.svg"))
+        asset = finders.find("images/landing-mark.svg")
+        assert isinstance(asset, str)
+        svg = Path(asset).read_text()
         colours = re.findall(r'(?:fill|stroke)="([^"]+)"', svg)
         self.assertTrue(colours)
         for colour in colours:

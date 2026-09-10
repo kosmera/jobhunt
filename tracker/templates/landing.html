@@ -1,0 +1,128 @@
+{% load static %}<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#153f36">
+  <meta name="description" content="Vos offres, vos CV et vos relances, enfin au même endroit. JobHunt vous aide à organiser votre recherche d’emploi et à avancer sereinement.">
+  <title>JobHunt — Votre prochain chapitre commence ici</title>
+  <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/archivo-var.woff2' %}" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/newsreader-italic-var.woff2' %}" crossorigin>
+  <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
+  <link rel="stylesheet" href="{% static 'css/landing.css' %}">
+  <link rel="icon" href="{% static 'images/landing-mark.svg' %}" type="image/svg+xml">
+  <script src="{% static 'js/landing.js' %}" defer></script>
+</head>
+<body>
+{% if request.user.is_authenticated %}{% url 'tracker:dashboard' as start_url %}{% elif auth_is_local %}{% url 'accounts:onboarding' as start_url %}{% elif signup_open %}{% url 'accounts:signup' as start_url %}{% else %}{% url 'accounts:login' as start_url %}{% endif %}
+  <a class="skip-link" href="#contenu">Aller au contenu</a>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="l-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+    <symbol id="l-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="l-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="l-board" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16M15 4v16"/></symbol>
+    <symbol id="l-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6M8 13h8M8 17h5"/></symbol>
+    <symbol id="l-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="l-pin" viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2"/></symbol>
+    <symbol id="l-spark" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4m-2-2h4"/></symbol>
+    <symbol id="l-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="l-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Zm-4 9 3 3 5-6"/></symbol>
+    <symbol id="l-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="l-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></symbol>
+  </svg>
+
+  <header class="site-header wrap">
+    <a class="wordmark" href="{% url 'landing' %}" aria-label="JobHunt, accueil"><img src="{% static 'images/landing-mark.svg' %}" width="34" height="34" alt="">JobHunt<span class="brand-dot">.</span></a>
+    <nav class="desktop-nav" aria-label="Navigation principale">
+      <a href="#fonctionnalites">Pourquoi JobHunt</a><a href="#comment">Comment ça marche</a><a href="#copilote">Copilote IA <span class="nav-new">+</span></a>
+    </nav>
+    <div class="header-actions">
+      <a class="login-link" href="{% url 'accounts:login' %}">{% if request.user.is_authenticated %}Mon espace{% else %}Se connecter{% endif %}</a>
+      <a class="button button-small" href="{{ start_url }}">{% if request.user.is_authenticated %}Ouvrir JobHunt{% elif not auth_is_local and not signup_open %}Accéder à JobHunt{% else %}Commencer{% endif %}<svg aria-hidden="true"><use href="#l-arrow"/></svg></a>
+      <button class="menu-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="Ouvrir le menu" hidden><svg aria-hidden="true"><use href="#l-menu"/></svg></button>
+    </div>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Navigation mobile" hidden><a href="#fonctionnalites">Pourquoi JobHunt</a><a href="#comment">Comment ça marche</a><a href="#copilote">Copilote IA</a><a href="#questions">Questions fréquentes</a><a href="{% url 'accounts:login' %}">Se connecter</a></nav>
+  </header>
+
+  <main id="contenu">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy wrap">
+        <p class="eyebrow hero-eyebrow"><span class="status-dot"></span> Moins de dispersion. Plus de perspectives.</p>
+        <h1 id="hero-title">Votre prochain chapitre<br><em>commence ici.</em></h1>
+        <p class="hero-description">Les bonnes opportunités méritent toute votre attention.<br class="desktop-break"> Rassemblez vos candidatures, préparez la suite et gardez le cap.</p>
+        <div class="hero-actions"><a class="button" href="{{ start_url }}">{% if request.user.is_authenticated %}Retrouver mon espace{% elif not auth_is_local and not signup_open %}Accéder à mon espace{% else %}Créer mon espace{% endif %}<svg aria-hidden="true"><use href="#l-arrow"/></svg></a><a class="button button-outline" href="#apercu"><svg aria-hidden="true"><use href="#l-play"/></svg>Découvrir JobHunt</a></div>
+        <p class="hero-note"><svg aria-hidden="true"><use href="#l-check"/></svg> Suivi gratuit <span>·</span> Vos candidatures, à votre rythme</p>
+      </div>
+
+      <div class="product-stage wrap" id="apercu">
+        <div class="product-window">
+          <div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span><svg aria-hidden="true"><use href="#l-shield"/></svg> Votre espace, pour avancer</span><span class="demo-badge">Démo interactive</span></div>
+          <div class="workspace">
+            <aside class="demo-sidebar" aria-label="Présentation de l’espace">
+              <div class="demo-brand"><img src="{% static 'images/landing-mark.svg' %}" width="25" height="25" alt="">JobHunt.</div>
+              <span class="workspace-label">MA RECHERCHE</span>
+              <div class="sidebar-selected"><svg aria-hidden="true"><use href="#l-board"/></svg>Candidatures <span>5</span></div>
+              <a href="#fonctionnalites"><svg aria-hidden="true"><use href="#l-bell"/></svg>Mes prochaines étapes</a>
+              <a href="#copilote"><svg aria-hidden="true"><use href="#l-spark"/></svg>Copilote IA <small>+</small></a>
+              <div class="sidebar-tip"><span class="small-spark"><svg aria-hidden="true"><use href="#l-spark"/></svg></span><strong>Un pas après l’autre.</strong><p>Chaque candidature est une nouvelle possibilité.</p></div>
+              <div class="demo-profile"><span>AL</span><div>Alex Laurent<small>Mon espace personnel</small></div></div>
+            </aside>
+            <div class="demo-main">
+              <div class="demo-heading"><div><span class="workspace-label">VOTRE RECHERCHE, EN MOUVEMENT</span><h2>On avance, Alex<span class="heading-dot">.</span></h2><p>La prochaine étape commence par une vue d’ensemble.</p></div><a class="demo-add" aria-label="Ajouter une offre dans mon espace" href="{{ start_url }}"><svg aria-hidden="true"><use href="#l-plus"/></svg>Ajouter une offre</a></div>
+              <div class="demo-toolbar"><div class="demo-tabs" role="tablist" aria-label="Explorer la démo"><button role="tab" id="tab-pipeline" aria-selected="true" aria-controls="demo-pipeline" tabindex="0"><svg aria-hidden="true"><use href="#l-board"/></svg>Pipeline</button><button role="tab" id="tab-reminders" aria-selected="false" aria-controls="demo-reminders" tabindex="-1"><svg aria-hidden="true"><use href="#l-bell"/></svg>Relances<span>2</span></button><button role="tab" id="tab-documents" aria-selected="false" aria-controls="demo-documents" tabindex="-1"><svg aria-hidden="true"><use href="#l-file"/></svg>Documents</button></div><span class="demo-period">Votre vue d’ensemble</span></div>
+              <div id="demo-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" tabindex="0">
+                <div class="kanban">
+                  <div class="kanban-column"><div class="column-label"><i class="dot-saved"></i>À préparer<span>2</span></div>
+                    <button class="job-card" data-job="nova"><span class="job-top"><span class="company-mark mark-purple">n.</span><span class="match-tag">92 % de match</span></span><strong>Product Designer</strong><span class="company-name">Studio Nova</span><span class="job-location"><svg aria-hidden="true"><use href="#l-pin"/></svg>Bruxelles · Hybride</span><span class="job-bottom"><span>CDI</span><span>À explorer <svg aria-hidden="true"><use href="#l-arrow"/></svg></span></span></button>
+                    <button class="job-card compact-card" data-job="horizon"><span class="job-top"><span class="company-mark mark-blue">h</span><span class="job-meta">Ajoutée aujourd’hui</span></span><strong>UX Researcher</strong><span class="company-name">Horizon · À distance</span></button>
+                  </div>
+                  <div class="kanban-column"><div class="column-label"><i class="dot-sent"></i>Envoyées<span>2</span></div>
+                    <button class="job-card" data-job="bloom"><span class="job-top"><span class="company-mark mark-pink">b</span><span class="sent-tag"><svg aria-hidden="true"><use href="#l-check"/></svg>Envoyée</span></span><strong>Senior UX Designer</strong><span class="company-name">Bloom</span><span class="job-location"><svg aria-hidden="true"><use href="#l-pin"/></svg>Louvain-la-Neuve · Hybride</span><span class="job-bottom"><span class="reminder-tag"><svg aria-hidden="true"><use href="#l-clock"/></svg>Relancer demain</span></span></button>
+                    <button class="job-card compact-card" data-job="forma"><span class="job-top"><span class="company-mark mark-sand">f.</span><span class="job-meta">Envoyée lundi</span></span><strong>Designer d’interface</strong><span class="company-name">Forma · Bruxelles</span></button>
+                  </div>
+                  <div class="kanban-column interview-column"><div class="column-label"><i class="dot-interview"></i>Entretiens<span>1</span></div>
+                    <button class="job-card interview-card" data-job="lumen"><span class="job-top"><span class="company-mark mark-green">lu</span><span class="interview-tag">Ça avance !</span></span><strong>Lead Product Designer</strong><span class="company-name">Lumen</span><span class="job-location"><svg aria-hidden="true"><use href="#l-pin"/></svg>Bruxelles · Hybride</span><span class="interview-date"><span>JEU<strong>17</strong></span><span>Rencontre avec l’équipe<small>10:00 – 10:45 · Visio</small></span></span></button>
+                    <div class="next-chapter" aria-hidden="true"><svg aria-hidden="true" viewBox="0 0 125 43"><path d="M4 32C29 2 65 3 87 20s-7 28-13 10S92 5 118 12m-9-9 9 9-11 5"/></svg><span>À vous la suite.</span></div>
+                  </div>
+                </div>
+              </div>
+              <div id="demo-reminders" class="alternate-panel" role="tabpanel" aria-labelledby="tab-reminders" tabindex="0" hidden><div class="panel-intro"><h3>Le bon message, au bon moment.</h3><p>Vos prochaines relances restent à portée de main.</p></div><div class="reminder-row"><span class="company-mark mark-pink">b</span><div><strong>Bloom · Senior UX Designer</strong><small>Candidature envoyée il y a 9 jours</small></div><span class="reminder-tag">Demain</span></div><div class="reminder-row"><span class="company-mark mark-sand">f.</span><div><strong>Forma · Designer d’interface</strong><small>Candidature envoyée lundi</small></div><span class="sent-tag">Dans 7 jours</span></div><p class="panel-note"><svg aria-hidden="true"><use href="#l-clock"/></svg>Le délai de relance se règle selon votre rythme.</p></div>
+              <div id="demo-documents" class="alternate-panel" role="tabpanel" aria-labelledby="tab-documents" tabindex="0" hidden><div class="panel-intro"><h3>Le bon CV pour la bonne opportunité.</h3><p>Vos documents restent attachés à leur candidature.</p></div><div class="document-row"><svg aria-hidden="true"><use href="#l-file"/></svg><div><strong>CV — Product Designer</strong><small>Votre CV de référence · PDF</small></div><span class="sent-tag">Bibliothèque</span></div><div class="document-row"><svg aria-hidden="true"><use href="#l-file"/></svg><div><strong>CV — Studio Nova</strong><small>Version adaptée à l’offre · DOCX</small></div><span class="match-tag">Candidature</span></div><p class="panel-note"><svg aria-hidden="true"><use href="#l-shield"/></svg>Tout est rassemblé dans votre espace personnel.</p></div>
+            </div>
+          </div>
+        </div>
+        <p class="demo-caption"><span><span class="status-dot"></span> Un aperçu de votre prochain espace</span><span>Données fictives · Cliquez pour explorer</span></p>
+      </div>
+    </section>
+
+    <section class="sources-strip wrap" aria-label="Centralisez toutes vos offres"><p>Repérées ici. Organisées chez vous.</p><div><span>LinkedIn</span><span>indeed</span><span>Welcome to the Jungle</span><span>Sites carrière</span><span>Votre réseau</span></div><small>Ajoutez les offres qui vous intéressent, quelle que soit leur provenance.</small></section>
+
+    <section class="features section-space wrap" id="fonctionnalites" aria-labelledby="features-title">
+      <div class="section-heading"><p class="eyebrow">UNE RECHERCHE PLUS SEREINE</p><h2 id="features-title">Tout ce qu’il faut pour avancer.<br><em>Et l’esprit un peu plus libre.</em></h2><p>Finis les onglets sans fin et les « j’en suis où, déjà ? ».<br>Votre recherche trouve enfin son point de repère.</p></div>
+      <div class="feature-grid">
+        <article class="feature-card"><div class="feature-art mini-pipeline" aria-hidden="true"><div><i></i><span></span><span></span></div><div><i></i><span></span></div><div><i></i><span class="mini-success">✓</span></div><span class="art-pill"><svg aria-hidden="true"><use href="#l-check"/></svg>Une étape de plus</span></div><span class="feature-icon"><svg aria-hidden="true"><use href="#l-board"/></svg></span><h3>Une vue claire sur la suite.</h3><p>De l’offre repérée à la proposition reçue, visualisez chaque candidature et faites-la avancer à votre rythme.</p><a href="#apercu" data-show-tab="pipeline">Explorer le pipeline <svg aria-hidden="true"><use href="#l-arrow"/></svg></a></article>
+        <article class="feature-card"><div class="feature-art reminder-art" aria-hidden="true"><div class="reminder-note"><span class="reminder-icon"><svg aria-hidden="true"><use href="#l-bell"/></svg></span><div><strong>Le moment de reprendre contact.</strong><small>Votre relance chez Bloom est prévue demain.</small></div><span class="note-time">J−1</span></div></div><span class="feature-icon"><svg aria-hidden="true"><use href="#l-bell"/></svg></span><h3>La bonne relance, au bon moment.</h3><p>Les prochaines actions remontent au bon endroit. Vous savez qui relancer, et quand reprendre contact.</p><a href="#apercu" data-show-tab="reminders">Voir les relances <svg aria-hidden="true"><use href="#l-arrow"/></svg></a></article>
+        <article class="feature-card"><div class="feature-art document-art" aria-hidden="true"><div class="paper paper-back"></div><div class="paper"><svg aria-hidden="true"><use href="#l-file"/></svg><strong>Le CV qui vous ressemble.</strong><i></i><i></i><i></i><span>Prêt pour la suite <svg aria-hidden="true"><use href="#l-check"/></svg></span></div></div><span class="feature-icon"><svg aria-hidden="true"><use href="#l-file"/></svg></span><h3>Chaque document à sa place.</h3><p>CV de référence, versions adaptées et notes : retrouvez le bon document, dans le bon dossier, sans chercher.</p><a href="#apercu" data-show-tab="documents">Découvrir les documents <svg aria-hidden="true"><use href="#l-arrow"/></svg></a></article>
+      </div>
+    </section>
+
+    <section class="how-section" id="comment" aria-labelledby="how-title"><div class="wrap"><div class="how-heading"><div><p class="eyebrow">VOTRE NOUVEAU POINT DE DÉPART</p><h2 id="how-title">Un peu d’ordre.<br><em>Beaucoup de possibles.</em></h2></div><p>Pas besoin de tout réinventer.<br>Commencez là où vous en êtes.</p></div><ol class="steps"><li><span class="step-number">01</span><h3>Faites connaissance.</h3><p>Votre métier, votre point de départ, vos envies. Créez un espace qui part de vous.</p></li><li><span class="step-number">02</span><h3>Rassemblez vos pistes.</h3><p>Ajoutez vos offres et déposez vos CV. Chaque opportunité trouve sa place.</p></li><li><span class="step-number">03</span><h3>Donnez-leur une suite.</h3><p>Préparez, postulez, relancez. Gardez un œil sur vos progrès et la prochaine étape.</p></li></ol></div></section>
+
+    <section class="copilot section-space wrap" id="copilote" aria-labelledby="copilot-title"><div class="copilot-copy"><p class="eyebrow"><svg aria-hidden="true"><use href="#l-spark"/></svg> LE PETIT COUP DE POUCE EN PLUS <span class="premium-label">Premium</span></p><h2 id="copilot-title">Votre talent.<br><em>Un copilote pour le révéler.</em></h2><p>Une offre vous plaît ? Le copilote IA rapproche votre expérience de ses attentes et vous aide à préparer un CV adapté.</p><ul class="check-list"><li><svg aria-hidden="true"><use href="#l-check"/></svg>Comprenez vos points forts pour chaque poste.</li><li><svg aria-hidden="true"><use href="#l-check"/></svg>Repérez les compétences à mettre en avant.</li><li><svg aria-hidden="true"><use href="#l-check"/></svg>Préparez un CV ciblé que vous pouvez relire.</li></ul><a class="text-link" href="#questions">En savoir plus sur le copilote <svg aria-hidden="true"><use href="#l-arrow"/></svg></a><p class="copilot-note">Une extension optionnelle. Vous gardez la main.</p></div><div class="match-art"><div class="match-sheet"><div class="match-sheet-top"><span class="company-mark mark-purple">n.</span><div><strong>Product Designer</strong><small>Studio Nova · Exemple d’analyse</small></div><svg aria-hidden="true"><use href="#l-spark"/></svg></div><div class="score-row"><div class="score-ring"><span>92<small>/ 100</small></span></div><div><span class="match-tag">Belle compatibilité</span><h3>Cette piste mérite<br>votre attention.</h3></div></div><div class="score-details"><div><span>Design produit</span><span><i style="--score:94%"></i></span><strong>94 %</strong></div><div><span>Recherche utilisateur</span><span><i style="--score:90%"></i></span><strong>90 %</strong></div><div><span>Collaboration</span><span><i style="--score:92%"></i></span><strong>92 %</strong></div></div><div class="match-insight"><svg aria-hidden="true"><use href="#l-spark"/></svg><p><strong>Votre expérience a de la valeur.</strong> Mettez en avant votre pratique de la recherche utilisateur et vos projets menés en équipe.</p></div></div><span class="match-caption"><svg aria-hidden="true"><use href="#l-shield"/></svg>Votre parcours reste le vôtre.</span></div></section>
+
+    <section class="faq section-space wrap" id="questions" aria-labelledby="faq-title"><div><p class="eyebrow">ON VOUS RÉPOND</p><h2 id="faq-title">Quelques questions<br><em>avant de commencer ?</em></h2><p>De quoi faire le premier pas<br>en toute confiance.</p></div><div class="faq-items">
+      <details open><summary>Qu’est-ce que je peux faire avec JobHunt ?<span class="faq-symbol" aria-hidden="true"></span></summary><p>Rassemblez vos offres, suivez vos candidatures, préparez vos relances et gardez vos CV et vos notes au même endroit. Le tableau de bord vous aide à voir ce qui mérite votre attention aujourd’hui.</p></details>
+      <details><summary>Est-ce que JobHunt est gratuit ?<span class="faq-symbol" aria-hidden="true"></span></summary><p>Le suivi des candidatures, le pipeline et la gestion des documents font partie du cœur gratuit de JobHunt. Le copilote IA est une extension payante optionnelle, accessible aux comptes Premium lorsqu’elle est installée.</p></details>
+      <details><summary>Est-ce que l’IA postule à ma place ?<span class="faq-symbol" aria-hidden="true"></span></summary><p>Vous choisissez les offres et vous envoyez vos candidatures. Le copilote vous aide à évaluer votre compatibilité et à préparer un CV ciblé. Vous relisez les documents et décidez de la suite.</p></details>
+      <details><summary>Et mes documents personnels ?<span class="faq-symbol" aria-hidden="true"></span></summary><p>Vos documents sont rattachés à votre profil et leur téléchargement est réservé à leur propriétaire. Avec le copilote, le texte du CV passe par une étape d’anonymisation avant l’analyse par l’IA.</p></details>
+      <details><summary>Je suis déjà en recherche. Puis-je commencer maintenant ?<span class="faq-symbol" aria-hidden="true"></span></summary><p>Oui. Ajoutez vos candidatures en cours et leur statut actuel, puis vos documents. Votre espace s’adapte à votre recherche, que vous ayez une première piste ou déjà plusieurs entretiens.</p></details>
+    </div></section>
+
+    <section class="final-cta wrap"><span class="cta-flower" aria-hidden="true"><svg><use href="#l-spark"/></svg></span><p class="eyebrow">LA SUITE VOUS APPARTIENT</p><h2>Prêt pour votre<br><em>prochain chapitre ?</em></h2><p>Un espace pour vos idées. Un cap pour votre carrière.</p><a class="button" href="{{ start_url }}">{% if request.user.is_authenticated %}Retrouver mon espace{% elif not auth_is_local and not signup_open %}Accéder à mon espace{% else %}Créer mon espace{% endif %}<svg aria-hidden="true"><use href="#l-arrow"/></svg></a><small>Le suivi est gratuit. Le premier pas est à vous.</small></section>
+  </main>
+
+  <footer class="site-footer wrap"><div><a class="wordmark" href="{% url 'landing' %}"><img src="{% static 'images/landing-mark.svg' %}" width="28" height="28" alt="">JobHunt<span class="brand-dot">.</span></a><p>Votre recherche. Votre rythme. Votre prochain chapitre.</p></div><nav aria-label="Navigation de pied de page"><a href="#fonctionnalites">Fonctionnalités</a><a href="#copilote">Copilote IA</a><a href="#questions">Questions fréquentes</a></nav><div class="footer-bottom"><span>© {% now 'Y' %} JobHunt</span><span>Pensé pour avancer, un pas à la fois.</span></div></footer>
+  <dialog class="job-dialog" aria-labelledby="dialog-title"><button class="dialog-close" aria-label="Fermer le détail de l’offre"><svg aria-hidden="true"><use href="#l-plus"/></svg></button><span class="eyebrow">APERÇU D’UNE CANDIDATURE</span><h2 id="dialog-title"></h2><p id="dialog-company"></p><span id="dialog-status" class="match-tag"></span><h3>Votre prochaine étape</h3><p id="dialog-next"></p><a class="button" href="{{ start_url }}">Ouvrir mon espace<svg aria-hidden="true"><use href="#l-arrow"/></svg></a><small>Exemple fictif. Retrouvez vos propres offres dans votre espace.</small></dialog>
+</body>
+</html>

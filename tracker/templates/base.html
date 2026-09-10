@@ -5,16 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#153f36">
   {# Par défaut htmx 2 n'échange pas les réponses 422 : nos formulaires invalides se re-rendent avec ce code. #}
   <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"[45]..","swap":false,"error":true}]}'>
   <title>{% block title %}JobHunt{% endblock %}</title>
   <script src="{% static 'js/theme-init.js' %}"></script>
   <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/archivo-var.woff2' %}" crossorigin>
   <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/newsreader-var.woff2' %}" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="{% static 'fonts/newsreader-italic-var.woff2' %}" crossorigin>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
-  <link rel="icon" href="data:image/svg+xml,{% filter urlencode %}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="5" fill="#333fb0"/><path d="M6 22h20M6 22v-5M13 22v-9M20 22v-13M27 22v-7" stroke="#f8f6f2" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>{% endfilter %}">
+  <link rel="icon" href="{% static 'images/landing-mark.svg' %}" type="image/svg+xml">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Aller au contenu</a>
   {% include "tracker/partials/icons.html" %}
   {% for icon_template in plugin_icon_templates %}{% include icon_template %}{% endfor %}
 
@@ -22,15 +25,17 @@
   <div class="shell">
     <aside class="rail">
       <div class="brand">
-        <div class="brand__mark">JobHunt<span>·</span></div>
+        {% include "tracker/partials/brand.html" %}
         <div class="brand__sub">
           {% if request.profile.location %}{{ request.profile.location|upper }} · RAYON {{ request.preferences.search_radius_km }} KM{% else %}SUIVI DE CANDIDATURES{% endif %}
         </div>
       </div>
 
+      <span class="rail__label eyebrow">Mon espace</span>
       <nav class="rail__nav" aria-label="Navigation principale">
         {% for item in nav_items %}
           <a class="rail__link{% if item.is_active %} is-active{% endif %}" href="{{ item.url }}"
+             aria-label="{{ item.label }}"
              {% if item.is_active %}aria-current="page"{% endif %}>
             <svg aria-hidden="true"><use href="#i-{{ item.icon }}"></use></svg>
             <span>{{ item.label }}</span>
@@ -40,12 +45,17 @@
       </nav>
 
       <div class="rail__foot">
+        <a class="rail__note" href="{% url 'landing' %}">
+          <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+          <span>Un pas après l’autre.</span>
+          <small>Votre prochain chapitre commence ici.</small>
+        </a>
         <button type="button" class="btn btn--sm btn--ghost" data-dialog-open="quick-add">
           <svg aria-hidden="true"><use href="#i-plus"></use></svg>
           Ajouter une offre
         </button>
         {% if user.is_staff %}
-          <a class="rail__link" href="{% url 'admin:index' %}">
+          <a class="rail__link" href="{% url 'admin:index' %}" aria-label="Données brutes" title="Données brutes">
             <svg aria-hidden="true"><use href="#i-file"></use></svg>
             <span>Données brutes</span>
           </a>
@@ -69,7 +79,7 @@
         </div>
       </header>
 
-      <main class="content{% block content_class %}{% endblock %}">
+      <main id="main-content" class="content{% block content_class %}{% endblock %}" tabindex="-1">
         {% if messages %}
           {% for message in messages %}
             <div class="flash {% if message.level_tag == 'error' %}t-red{% elif message.level_tag == 'warning' %}t-amber{% else %}t-green{% endif %}">

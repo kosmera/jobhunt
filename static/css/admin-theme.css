@@ -1,0 +1,110 @@
+@import url("fonts.css");
+
+/* Django's own component and theme contracts, with the JobHunt palette. */
+:root, html[data-theme="light"] {
+  --primary: #287253;
+  --secondary: #153f36;
+  --accent: #d7f2bb;
+  --primary-fg: #fff;
+  --body-fg: #243e35;
+  --body-bg: #fcfdfb;
+  --body-quiet-color: #627369;
+  --body-medium-color: #4f6658;
+  --body-loud-color: #153f36;
+  --header-color: #d7f2bb;
+  --header-branding-color: #fff;
+  --header-bg: #153f36;
+  --header-link-color: #fff;
+  --breadcrumbs-fg: #dcebd3;
+  --breadcrumbs-link-fg: #fff;
+  --breadcrumbs-bg: #287253;
+  --link-fg: #287253;
+  --link-hover-color: #153f36;
+  --link-selected-fg: #153f36;
+  --hairline-color: #dfe7de;
+  --border-color: #b4c4b3;
+  --darkened-bg: #f4f8ef;
+  --selected-bg: #edf3e8;
+  --selected-row: #edf6ee;
+  --button-bg: #153f36;
+  --button-fg: #fff;
+  --button-hover-bg: #287253;
+  --default-button-bg: #153f36;
+  --default-button-hover-bg: #287253;
+  --object-tools-fg: #fff;
+  --font-family-primary: "Archivo", system-ui, sans-serif;
+  --font-family-monospace: "IBM Plex Mono", monospace;
+}
+
+html[data-theme="dark"] {
+  --primary: #30333b;
+  --secondary: #24262c;
+  --primary-fg: #f0f1f3;
+  --body-fg: #f0f1f3;
+  --body-bg: #141518;
+  --body-quiet-color: #bfc3cb;
+  --body-medium-color: #d4d7dc;
+  --body-loud-color: #f7f8fa;
+  --header-bg: #191a1f;
+  --header-color: #f0f1f3;
+  --header-branding-color: #f7f8fa;
+  --breadcrumbs-fg: #d4d7dc;
+  --breadcrumbs-bg: #24262c;
+  --link-fg: #9bd4b2;
+  --link-hover-color: #cbe9d5;
+  --link-selected-fg: #cbe9d5;
+  --hairline-color: #3a3d45;
+  --border-color: #7b818e;
+  --darkened-bg: #1e2025;
+  --selected-bg: #25272d;
+  --selected-row: #29332e;
+  --button-bg: #b8dec6;
+  --button-fg: #17231c;
+  --button-hover-bg: #cbe9d5;
+  --default-button-bg: #b8dec6;
+  --default-button-hover-bg: #cbe9d5;
+  --error-fg: #ffb4a2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --primary: #30333b;
+    --secondary: #24262c;
+    --primary-fg: #f0f1f3;
+    --body-fg: #f0f1f3;
+    --body-bg: #141518;
+    --body-quiet-color: #bfc3cb;
+    --body-medium-color: #d4d7dc;
+    --body-loud-color: #f7f8fa;
+    --header-bg: #191a1f;
+    --header-color: #f0f1f3;
+    --header-branding-color: #f7f8fa;
+    --breadcrumbs-fg: #d4d7dc;
+    --breadcrumbs-bg: #24262c;
+    --link-fg: #9bd4b2;
+    --link-hover-color: #cbe9d5;
+    --link-selected-fg: #cbe9d5;
+    --hairline-color: #3a3d45;
+    --border-color: #7b818e;
+    --darkened-bg: #1e2025;
+    --selected-bg: #25272d;
+    --selected-row: #29332e;
+    --button-bg: #b8dec6;
+    --button-fg: #17231c;
+    --button-hover-bg: #cbe9d5;
+    --default-button-bg: #b8dec6;
+    --default-button-hover-bg: #cbe9d5;
+    --error-fg: #ffb4a2;
+  }
+}
+.admin-brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.04em; }
+.admin-brand > span { font-size: 12px; font-weight: 400; letter-spacing: 0; margin-left: 10px; }
+.module { border-radius: 10px; overflow: hidden; }
+.module h2, .module caption { padding: 14px 16px; font-weight: 500; }
+#content h1 { font-weight: 500; letter-spacing: -0.04em; }
+input, select, textarea, .button, input[type="submit"], .submit-row, #changelist-filter { border-radius: 8px; }
+/* Django shares button-fg with destructive and neutral actions. Keep those
+   labels white against their existing red and gray backgrounds in both themes. */
+.submit-row a.deletelink, .submit-row a.closelink,
+.delete-confirmation form input[type="submit"], .delete-confirmation form .cancel-link { color: #fff; }
+:focus-visible { outline: 3px solid var(--link-fg); outline-offset: 3px; }

@@ -1,9 +1,11 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from jobhunt.landing import landing
 from jobhunt.plugins import get_plugins
 
 urlpatterns = [
+    path("accueil/", landing, name="landing"),
     path("admin/", admin.site.urls),
     path("", include("accounts.urls")),
     path("", include("tracker.urls")),

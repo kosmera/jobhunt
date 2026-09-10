@@ -1,0 +1,130 @@
+name: deploy-$(Date:yyyyMMdd)$(Rev:.r)
+
+# A merge into main is a push to main. Batch changes while a run is active.
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+
+# Pull requests already run .github/workflows/validation.yml.
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  pythonVersion: '3.12'
+  azureServiceConnection: tonjobideal-azure
+  webAppName: tonjobideal
+
+resources:
+  containers:
+    - container: postgres
+      image: postgres:17
+      env:
+        POSTGRES_DB: jobhunt
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+      ports:
+        - 5432:5432
+      options: >-
+        --health-cmd "pg_isready -U postgres -d jobhunt"
+        --health-interval 10s --health-timeout 5s --health-retries 5
+
+stages:
+  - stage: Build
+    displayName: Validate and package
+    jobs:
+      - job: Validate
+        timeoutInMinutes: 30
+        services:
+          postgres: postgres
+        variables:
+          PYTHONUNBUFFERED: '1'
+          JOBHUNT_AUTO_MIGRATE: '0'
+          JOBHUNT_DEBUG: '1'
+          JOBHUNT_AUTH_MODE: local
+          JOBHUNT_DATABASE_URL: 'sqlite:///:memory:'
+        steps:
+          - checkout: self
+            persistCredentials: false
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+          - bash: |
+              set -euo pipefail
+              python -m pip install uv==0.9.15
+              uv sync --locked --all-extras
+              uv run --no-sync python -c "from importlib.util import find_spec; assert find_spec('jobhunt_ai') is None"
+            displayName: Install locked core dependencies
+          - bash: |
+              set -euo pipefail
+              uvx --from pre-commit==4.6.2 pre-commit run --all-files
+            displayName: Lint, types, Django checks and migration drift
+          - bash: |
+              set -euo pipefail
+              uv run --no-sync python manage.py test accounts tracker jobhunt rls --noinput
+            displayName: Test with SQLite
+          - bash: |
+              set -euo pipefail
+              uv run --no-sync python manage.py test accounts tracker jobhunt rls --noinput
+            displayName: Test with PostgreSQL and row-level security
+            env:
+              JOBHUNT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobhunt
+          - bash: |
+              set -euo pipefail
+              mkdir -p "$PACKAGE_ROOT"
+              # Archive only committed application files. No local data or tooling.
+              git archive HEAD accounts jobhunt tracker rls static templates manage.py startup.sh \
+                | tar -x -C "$PACKAGE_ROOT"
+              # Oryx installs these exact production dependencies with pip.
+              uv export --locked --format requirements-txt --no-dev --no-emit-project \
+                --no-hashes --extra postgres --extra azure --extra deploy \
+                --output-file "$PACKAGE_ROOT/requirements.txt" > /dev/null
+            displayName: Prepare the production package
+            env:
+              PACKAGE_ROOT: $(Build.ArtifactStagingDirectory)/app
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: $(Build.ArtifactStagingDirectory)/app
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: $(Build.ArtifactStagingDirectory)/jobhunt.zip
+          - publish: $(Build.ArtifactStagingDirectory)/jobhunt.zip
+            artifact: webapp
+
+  - stage: Deploy
+    displayName: Deploy to tonjobideal
+    dependsOn: Build
+    # Also protects production when a non-main branch is run manually.
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    lockBehavior: sequential
+    jobs:
+      - deployment: AppService
+        timeoutInMinutes: 30
+        environment: tonjobideal-production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: webapp
+                - task: AzureWebApp@1
+                  displayName: Deploy the validated package
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    appType: webAppLinux
+                    appName: $(webAppName)
+                    package: $(Pipeline.Workspace)/webapp/jobhunt.zip
+                    runtimeStack: PYTHON|3.12
+                    startUpCommand: bash startup.sh
+                    deploymentMethod: zipDeploy
+                - bash: |
+                    set -euo pipefail
+                    curl --fail --silent --show-error --location \
+                      --retry 12 --retry-all-errors --retry-delay 10 --max-time 30 \
+                      --output /dev/null "https://${WEB_APP_NAME}.azurewebsites.net/connexion/"
+                  displayName: Check the deployed login page
+                  env:
+                    WEB_APP_NAME: $(webAppName)

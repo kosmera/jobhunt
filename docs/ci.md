@@ -1,5 +1,8 @@
 # GitHub validation
 
+For automatic deployment from `main` to Azure App Service after validation,
+see [Automatic Azure deployment](deployment.md).
+
 `.github/workflows/validation.yml` runs on pushes, pull requests, and manual
 dispatches. It uses Python 3.12 and the dependencies recorded in `uv.lock`.
 No AI package, AI credentials, or repository secrets are required.

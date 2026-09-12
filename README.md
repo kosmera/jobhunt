@@ -21,9 +21,9 @@ activer, rien à installer à la main.
 uv run manage.py runserver
 ```
 
-Puis <http://localhost:8000>. En local il n'y a ni mot de passe ni écran de
-connexion : la première visite demande un nom et un point de départ, et c'est
-ton profil. Voir [Comptes et profil](#comptes-et-profil).
+Puis <http://localhost:8000>. Sans session, la première visite ouvre la page
+de présentation. « Commencer » lance le parcours de création du profil,
+sans mot de passe en local. Voir [Comptes et profil](#comptes-et-profil).
 
 Ni `makemigrations` ni `migrate` à lancer à la main : en développement,
 `runserver` écrit la migration d'un modèle modifié, puis applique tout ce qui
@@ -125,7 +125,10 @@ vide, et chaque page a son état vide.
 
 Chaque ligne du suivi — candidature, société, plateforme, lacune, document —
 appartient à un profil, et chaque page ne montre que le sien. Deux façons
-d'entrer, choisies par `JOBHUNT_AUTH_MODE` :
+d'entrer, choisies par `JOBHUNT_AUTH_MODE`. Dans les deux modes, un visiteur
+non connecté sur `/` est dirigé vers la page de présentation `/accueil/` ;
+un utilisateur connecté y retrouve son tableau de bord. Les règles suivantes
+s'appliquent ensuite à l'entrée dans l'espace privé :
 
 | Mode | Quand | Comment on entre |
 | --- | --- | --- |

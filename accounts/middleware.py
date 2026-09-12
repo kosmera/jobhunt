@@ -1,11 +1,12 @@
 """Gatekeeping: who may see what, and where a newcomer is sent first.
 
 Builds on Django's ``LoginRequiredMiddleware`` (views opt out with
-``login_not_required``) and adds three things:
+``login_not_required``) and adds four things:
 
-- **local mode** — no login page in the way: with no account yet the visitor
-  lands on onboarding, with exactly one account it is signed in on the spot,
-  with several the picker is shown;
+- **homepage** — signed-out visitors land on the public page in both modes;
+- **local mode** — entering a private page with no account yet sends the
+  visitor to onboarding; with exactly one account it is signed in on the
+  spot, with several the picker is shown;
 - **onboarding** — an authenticated account without a completed profile is
   sent to ``/bienvenue/`` (views opt out with ``onboarding_not_required``);
 - **HTMX** — a fragment request never receives a login page to swap in: it
@@ -85,6 +86,9 @@ class AccountsMiddleware(LoginRequiredMiddleware):
             return None
 
         if not request.user.is_authenticated:
+            # The homepage is the public entry point for signed-out visitors.
+            if match and match.view_name == "tracker:dashboard":
+                return self._redirect(request, reverse("landing"))
             if not conf.is_local():
                 return self.handle_no_permission(request, view_func)
             response = self._local_entry(request, view_func)

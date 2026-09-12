@@ -39,9 +39,9 @@ def make_application(owner, title="Poste", company_name="Acme") -> Application:
 
 @override_settings(AUTH_MODE="local")
 class LocalModeTests(TestCase):
-    def test_first_visit_lands_on_onboarding(self):
+    def test_first_visit_lands_on_landing(self):
         response = self.client.get(reverse("tracker:dashboard"))
-        self.assertRedirects(response, reverse("accounts:onboarding"), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse("landing"))
         first_step = "/bienvenue/situation/"
         self.assertRedirects(self.client.get(reverse("accounts:onboarding")), first_step)
         self.assertEqual(self.client.get(first_step).status_code, 200)
@@ -70,9 +70,9 @@ class LocalModeTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(User.objects.exists())
 
-    def test_single_profile_is_signed_in_automatically(self):
+    def test_single_profile_is_signed_in_automatically_on_private_pages(self):
         user = make_user("Lionel")
-        response = self.client.get(reverse("tracker:dashboard"))
+        response = self.client.get(reverse("tracker:pipeline"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.wsgi_request.user, user)
         self.assertContains(response, "Lionel")
@@ -86,7 +86,7 @@ class LocalModeTests(TestCase):
         make_application(placeholder, "Ingénieur")
         make_application(placeholder, "SRE")
 
-        response = self.client.get(reverse("tracker:dashboard"))
+        response = self.client.get(reverse("tracker:pipeline"))
         self.assertRedirects(response, reverse("accounts:onboarding"), fetch_redirect_response=False)
         self.assertRedirects(self.client.get(reverse("accounts:onboarding")), "/bienvenue/reprise/")
         page = self.client.get("/bienvenue/reprise/")
@@ -681,9 +681,9 @@ class SettingsTests(OwnedTestCase):
         self.assertFalse(Document.objects.filter(owner_id=self.user.pk).exists())
         for path in paths:
             self.assertFalse(path.exists())
-        # The other profile is untouched, and (local mode, one profile left) signed in next.
+        # The remaining local profile is signed in when entering a private page.
         self.assertEqual(Application.objects.filter(owner=other).count(), 1)
-        self.assertEqual(self.client.get(reverse("tracker:dashboard")).wsgi_request.user, other)
+        self.assertEqual(self.client.get(reverse("tracker:pipeline")).wsgi_request.user, other)
 
 
 # ---------------------------------------------------------------------------

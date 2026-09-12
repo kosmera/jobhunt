@@ -52,9 +52,10 @@ NO_PLUGIN = mock.patch("accounts.onboarding.services.cv_analyzer", new=lambda: N
 @override_settings(AUTH_MODE="local")
 @NO_PLUGIN
 class LocalFlowTests(TestCase):
-    def test_first_visit_lands_on_the_first_step(self):
-        response = self.client.get(reverse("tracker:dashboard"))
-        self.assertRedirects(response, ENTRY, fetch_redirect_response=False)
+    def test_first_visit_offers_onboarding_from_the_landing_page(self):
+        response = self.client.get(reverse("tracker:dashboard"), follow=True)
+        self.assertRedirects(response, reverse("landing"))
+        self.assertContains(response, f'href="{ENTRY}"')
         response = self.client.get(ENTRY)
         self.assertRedirects(response, url("situation"), fetch_redirect_response=False)
         page = self.client.get(url("situation"))
@@ -150,7 +151,7 @@ class LocalFlowTests(TestCase):
         placeholder = User.objects.create_user(username=LOCAL_USERNAME, password=None)
         make_application(placeholder, "Ingénieur")
         make_application(placeholder, "SRE")
-        response = self.client.get(reverse("tracker:dashboard"))
+        response = self.client.get(reverse("tracker:pipeline"))
         self.assertRedirects(response, ENTRY, fetch_redirect_response=False)
         response = self.client.get(ENTRY)
         self.assertRedirects(response, url("reprise"), fetch_redirect_response=False)

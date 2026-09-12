@@ -1,6 +1,7 @@
 # JobHunt landing page
 
-Public page: `/accueil/`. The private dashboard retains its existing `/` route.
+Public page: `/accueil/`. Signed-out visitors to `/` are redirected here in both
+account modes. Signed-in visitors still reach the private dashboard at `/`.
 Start links use the current account mode: local onboarding, open registration,
 sign-in when registration is closed, or the dashboard for a signed-in visitor.
 

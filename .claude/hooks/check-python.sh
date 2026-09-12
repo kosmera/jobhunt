@@ -32,7 +32,7 @@ else
     problems="pyright introuvable (uv tool install pyright)"
 fi
 
-lint=$(uv run --no-sync pyflakes jobhunt accounts tracker 2>&1)
+lint=$(uv run --no-sync pyflakes jobhunt accounts tracker rls jobhunt_ai 2>&1)
 if [ -n "$lint" ]; then
     problems="${problems:+$problems
 

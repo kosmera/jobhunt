@@ -115,6 +115,6 @@ class ActivityEventAdmin(admin.ModelAdmin):
     date_hierarchy = "happened_on"
 
 
-admin.site.site_header = "JobHunt — administration"
-admin.site.site_title = "JobHunt"
+admin.site.site_header = "tonjobidéal — administration"
+admin.site.site_title = "tonjobidéal"
 admin.site.index_title = "Données"

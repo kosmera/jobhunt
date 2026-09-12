@@ -8,6 +8,6 @@
 {% endblock %}
 
 {% block branding %}
-  <div id="site-name"><a href="{% url 'admin:index' %}" class="admin-brand"><img src="{% static 'images/landing-mark.svg' %}" width="32" height="32" alt="">JobHunt<span>Administration</span></a></div>
+  <div id="site-name"><a href="{% url 'admin:index' %}" class="admin-brand"><img src="{% static 'images/landing-mark.svg' %}" width="32" height="32" alt="">tonjobidéal<span>Administration</span></a></div>
   {% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}
 {% endblock %}

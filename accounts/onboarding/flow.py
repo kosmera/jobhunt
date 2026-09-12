@@ -173,7 +173,7 @@ STEPS: tuple[Step, ...] = (
     ),
     Step(
         "help", "aide", Kind.MULTI, "titles",
-        title="Qu'attends-tu de JobHunt ?", lede="Plusieurs réponses possibles.",
+        title="Qu'attends-tu de tonjobidéal ?", lede="Plusieurs réponses possibles.",
         answer_keys=("help_wanted",),
     ),
     Step(

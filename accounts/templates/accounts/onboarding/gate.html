@@ -1,6 +1,6 @@
 {% extends "accounts/onboarding/layout.html" %}
 {% load tracker_extras %}
-{% block title %}{% if variant == "accounts_signup" %}Ton compte{% else %}Ton profil{% endif %} — JobHunt{% endblock %}
+{% block title %}{% if variant == "accounts_signup" %}Ton compte{% else %}Ton profil{% endif %} — tonjobidéal{% endblock %}
 {% block step %}
   <form method="post" class="onb__form" novalidate>
     {% csrf_token %}

@@ -231,7 +231,7 @@ def plan_rows(preferences) -> list[PlanRow]:
         PlanRow("Aujourd'hui", "Ajoute les offres que tu as déjà repérées : le pipeline commence par un vivier."),
         PlanRow(
             "Cette semaine",
-            "Envoie ta première candidature depuis JobHunt : la relance se programme toute seule "
+            "Envoie ta première candidature depuis tonjobidéal : la relance se programme toute seule "
             f"à J+{preferences.follow_up_days}.",
         ),
         PlanRow(

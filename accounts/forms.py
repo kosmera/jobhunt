@@ -414,7 +414,7 @@ class SearchProfileForm(forms.Form):
     employment_status = _select(EmploymentStatus.choices, label="Situation")
     challenge = _select(Challenge.choices, label="Principale difficulté")
     help_wanted = forms.MultipleChoiceField(
-        label="Ce que tu attends de JobHunt",
+        label="Ce que tu attends de tonjobidéal",
         required=False,
         choices=HelpWanted.choices,
         widget=ChipCheckboxes(),

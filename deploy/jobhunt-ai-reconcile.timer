@@ -1,0 +1,10 @@
+[Unit]
+Description=Check JobHunt AI deadlines every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=jobhunt-ai-reconcile.service
+
+[Install]
+WantedBy=timers.target

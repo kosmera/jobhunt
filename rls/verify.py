@@ -190,8 +190,9 @@ def inspect(connection) -> Report:
             [grantee, grantee, grantee, grantee],
         )
         registered = {t.table for t in report.tables}
-        # Exemptions declared by installed extensions must apply at runtime
-        # as well as in the model checks (e.g. shared task-queue tables).
+        # Exemptions declared by installed apps must apply at runtime as
+        # well as in the model checks; the queue tables are allowed by name
+        # (``sql.QUEUE_TABLES``) so they survive the copilot being turned off.
         allowed = set(sql.UNPROTECTED_ALLOWED) | {
             model._meta.db_table for model in apps.get_models(include_auto_created=True)
             if registry.is_exempt(model)

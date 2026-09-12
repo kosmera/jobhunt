@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from importlib import import_module
+
+from django.apps import apps
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.services import preferences_for
-from jobhunt.plugins import plugin_nav_badges, plugin_nav_items, plugin_templates
 from tracker import services
 
 NAV_ITEMS = [
@@ -18,14 +20,24 @@ NAV_ITEMS = [
 ]
 
 
+def _copilot_hooks():
+    """The copilot's chrome (nav entry, badges), or None when it is off.
+
+    Imported on demand rather than at module level: ``jobhunt_ai`` is only
+    importable when it is installed (``COPILOT_ENABLED``), and the core must
+    render without it.
+    """
+    return import_module("jobhunt_ai.hooks") if apps.is_installed("jobhunt_ai") else None
+
+
 def navigation(request):
     today = timezone.localdate()
+    hooks = _copilot_hooks()
     context = {
         "today": today,
         "nav_items": [],
         "nav_counters": {},
-        "plugin_icon_templates": plugin_templates("icon_templates"),
-        "plugin_application_panels": plugin_templates("application_panels"),
+        "copilot_enabled": hooks is not None,
     }
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
@@ -36,10 +48,11 @@ def navigation(request):
     counters = services.nav_counters(
         user, stale_days=preferences.stale_after_days, today=today
     )
-    counters.update(plugin_nav_badges(request))
+    if hooks is not None:
+        counters.update(hooks.nav_badges(request))
 
     items = []
-    for route, label, icon, counter in NAV_ITEMS + plugin_nav_items():
+    for route, label, icon, counter in NAV_ITEMS + ([hooks.NAV_ITEM] if hooks else []):
         url = reverse(route)
         items.append(
             {

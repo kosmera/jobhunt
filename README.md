@@ -28,7 +28,7 @@ ton profil. Voir [Comptes et profil](#comptes-et-profil).
 Ni `makemigrations` ni `migrate` à lancer à la main : en développement,
 `runserver` écrit la migration d'un modèle modifié, puis applique tout ce qui
 est en attente avant de servir — et de nouveau à chaque rechargement, donc
-aussi après un `git pull` ou l'installation d'une extension. Une seule
+aussi après un `git pull`. Une seule
 réserve : quand Django devrait te poser une question (un renommage possible,
 un champ obligatoire sans valeur par défaut — la mauvaise réponse perd des
 données), rien n'est généré et le démarrage te renvoie à
@@ -44,8 +44,8 @@ l'installation : ouvre **Données brutes** dans la barre latérale ou `/admin/`,
 sans créer un second compte ni saisir de mot de passe. Une session existante
 (comme le profil historique `local`) est mise à niveau à la prochaine requête.
 Les profils supplémentaires restent des utilisateurs ordinaires. Ce rôle
-n'active aucune extension payante ; la date Premium est en lecture seule
-dans l'administration locale.
+n'ouvre pas le [copilote IA](#copilote-ia), réservé aux comptes Premium ; la
+date Premium est en lecture seule dans l'administration locale.
 
 Pour une instance auto-hébergée avec connexion par mot de passe
 (`JOBHUNT_AUTH_MODE=accounts`), crée explicitement l'administrateur :
@@ -63,6 +63,7 @@ uv run manage.py createsuperuser
 | **Candidatures** | Le tableau complet, avec recherche instantanée et filtres. La recherche porte aussi sur les analyses et tes notes : tape `Terraform` pour retrouver les trois offres où il te manque. |
 | **Documents** | Les 4 CV génériques d'un côté, les CV adaptés rattachés à leur offre de l'autre. |
 | **Analyse** | Les lacunes à combler, les plateformes explorées, les offres écartées (récupérables en un clic), et un nuage compatibilité × distance. |
+| **Copilote** | Le copilote IA (`/copilote/`), pour les comptes Premium : analyse du CV en profil candidat, évaluation d'une offre, CV ciblé, veille sur les sites d'offres. Voir [Copilote IA](#copilote-ia). |
 | **Réglages** | Ton profil (nom, titre, point de départ, e-mail), ce que tu cherches (les réponses du parcours Bienvenue : postes, secteurs, expérience, formation, contrats, mode de travail, villes, salaire, horizon, situation), tes préférences (délais de relance et de signalement, rayon, langue de CV), ton mot de passe, et la suppression du compte. Accessible depuis ton nom, en bas de la barre latérale. |
 
 ### Automatismes
@@ -153,8 +154,8 @@ Ce que chaque réponse alimente :
   tout se modifie ensuite dans **Réglages**, section « Ce que tu cherches » ;
 - **Documents** : le CV téléversé devient le CV de base de la bibliothèque. Le
   fichier ne quitte jamais l'espace du profil ; seule une version anonymisée du
-  texte est transmise à une extension qui écoute, et l'écran le dit tel quel —
-  pas de pourcentage inventé.
+  texte est transmise au copilote quand il est activé, et l'écran le dit tel
+  quel — pas de pourcentage inventé.
 
 Les états du parcours sont une machine à états finis (`accounts/onboarding/`) :
 un tableau d'étapes avec des gardes, vérifié à l'import et par les tests ; le
@@ -221,9 +222,8 @@ de connexions côté application — il demande `psycopg[pool]`, donc
 fois. Compte les connexions : un plan Azure de base en accorde peu, et chaque
 worker de ton serveur d'application en garde une (ou un pool).
 
-Le pilote s'installe de deux façons. En développement, sans passer par
-`uv sync` — qui retirerait une extension installée à la main, voir
-[Extensions](#extensions) :
+Le pilote s'installe de deux façons. En développement, sans toucher au reste
+du `.venv` :
 
 ```bash
 uv pip install "psycopg[binary,pool]>=3.2"
@@ -249,7 +249,7 @@ officielle) :
 docker run -d --name jobhunt-pg -e POSTGRES_USER=jobhunt -e POSTGRES_PASSWORD=jobhunt \
   -e POSTGRES_DB=jobhunt -p 127.0.0.1:55432:5432 postgres:16-alpine
 JOBHUNT_DATABASE_URL=postgres://jobhunt:jobhunt@127.0.0.1:55432/jobhunt JOBHUNT_DEBUG=0 \
-  uv run --no-sync manage.py test accounts tracker jobhunt rls
+  uv run manage.py test accounts tracker jobhunt rls jobhunt_ai
 ```
 
 ## Stockage des fichiers
@@ -311,7 +311,7 @@ Le cœur ne connaît qu'un port, `StoragePort` (`tracker/ports.py`) :
 `save_file`, `open_file`, `delete_file`, `file_exists`, `get_secure_url` et
 `extract_and_anonymize_text`. Chaque adaptateur est aussi le *storage* Django
 que `STORAGES["default"]` désigne : `Document.file`, la suppression en
-cascade, `import_legacy` et les extensions passent par le même objet sans le
+cascade, `import_legacy` et le copilote passent par le même objet sans le
 savoir, et aucune migration n'a été nécessaire — sauf la colonne
 `size_bytes`, qui évite un aller-retour réseau par ligne affichée quand les
 fichiers sont chez Azure.
@@ -345,12 +345,13 @@ date et lieu de naissance, âge, adresse, et ce que le profil sait de son
 propriétaire — nom, identifiant, e-mail, point de départ, téléphone —
 remplacés par `[EMAIL]`, `[TELEPHONE]`, `[NOM]`…), puis remet ce texte, et
 seulement lui,
-à la couche IA. Celle-ci est un second port, `CVAnalyzer` : une extension le
-fournit par l'attribut `cv_analyzer` de son descripteur (chemin pointé d'une
-classe sans argument), `settings.CV_ANALYZER` sert aux tests, et sans
-personne le CV est simplement rangé. L'analyseur est appelé dans la requête :
-il doit rendre la main tout de suite et lancer son travail depuis
-`rls.on_commit`. Un CV illisible — format inconnu, scan sans couche texte,
+à la couche IA. Celle-ci est un second port, `CVAnalyzer` : le cœur publie le
+texte sur le signal `tracker.events.cv_ingested`, auquel le copilote abonne
+`jobhunt_ai.signals.receive_cv` au démarrage (`tracker.adapters.cv_analyzer()`
+rend alors un `CVEventPublisher`) ; `settings.CV_ANALYZER` sert aux tests, et
+sans abonné — `COPILOT_ENABLED=0` — le CV est simplement rangé. L'analyseur
+est appelé dans la requête : il doit rendre la main tout de suite et lancer
+son travail depuis `rls.on_commit`. Un CV illisible — format inconnu, scan sans couche texte,
 moins de 200 caractères extraits — est conservé et non analysé : le cœur n'a
 aucun repli qui enverrait le fichier lui-même.
 
@@ -367,7 +368,7 @@ nationalité, ni la situation familiale, ni le permis de conduire ; une année
 seule en début de ligne suivie d'une ville (`2018 Liège, Belgique`) est
 ambiguë et masquée par prudence, tout comme un code postal qui suit
 immédiatement une rue. Rien de ce qu'elle masque n'est récupérable côté IA :
-ce qu'une extension doit réafficher — nom, e-mail, point de départ,
+ce que le copilote doit réafficher — nom, e-mail, point de départ,
 téléphone — vient du profil du compte, pas du CV. Le téléphone y est
 facultatif : laissé vide, il ne figure nulle part. Les liens, eux, ne sont
 inscrits nulle part ailleurs que dans le CV : ils sont donc perdus pour l'IA.
@@ -416,7 +417,7 @@ comptes hors `DEBUG`) la requête échoue sinon ; sans, un avertissement est
 journalisé une fois. `manage.py check --database default` fait le même examen
 (`rls.E004` avec le rôle applicatif, `rls.W002` avec le propriétaire) — y
 compris toute table lisible par le rôle applicatif qui n'a pas de politique,
-celles d'une extension comprises —, et
+celles du copilote comprises —, et
 `manage.py rls_status` l'affiche table par table (`--probe` : passe au rôle
 applicatif et compte ce qu'une session sans compte voit — zéro partout, sauf
 `auth_user`).
@@ -448,7 +449,7 @@ l'annoncent :
   configure), pour toute transaction ouverte ailleurs pendant qu'un compte
   est lié ;
 - `rls.as_user(user)` pour tout ce qui n'est pas une requête : commandes
-  (`import_legacy` l'utilise), tâches de fond, tests, extensions.
+  (`import_legacy` l'utilise), tâches de fond (le worker du copilote), tests.
   `as_user(None)` pose une question « pour personne » : c'est ainsi que la
   table des comptes, seule à rester lisible sans compte lié (il faut bien
   trouver le compte pour le connecter), répond à l'unicité d'un e-mail ou
@@ -537,8 +538,9 @@ court.
   app (`rls.register("app.Model", owner="user")`, ou `via="application"`
   pour un satellite) et pose sa politique dans une migration
   (`rls.operations.EnableRowLevelSecurity`). Le contrôle `rls.W001` signale
-  tout modèle oublié — les extensions comprises : une extension qui
-  n'enregistre pas ses tables garde la seule première couche.
+  tout modèle oublié — ceux du copilote compris : `jobhunt_ai/apps.py`
+  enregistre ses sept tables et déclare exemptes celles de `django_q`, une
+  file partagée que le worker lit sans compte lié.
 - Jamais de fonction `SECURITY DEFINER` ni de vue sans `security_invoker`
   sur une table protégée : elles contournent les politiques.
 - Une connexion (`auth.login`) se fait au niveau de la requête, jamais à
@@ -567,16 +569,21 @@ posées par le superutilisateur. Les tests propres aux politiques
 ## Tests
 
 Le [pipeline GitHub de validation](docs/ci.md) lance Ruff, Pyright et les tests
-sur SQLite et PostgreSQL, avec une installation du cœur sans le module IA.
-Les [hooks Git](docs/ci.md#install-git-hooks) bloquent les commits invalides et
-lancent les tests SQLite avant chaque push. Le guide indique la commande
-d'installation à exécuter une fois par clone.
+sur SQLite et PostgreSQL, copilote compris, puis une fois de plus le cœur seul
+avec `COPILOT_ENABLED=0`. Les [hooks Git](docs/ci.md#install-git-hooks)
+bloquent les commits invalides et lancent les tests SQLite avant chaque push.
+Le guide indique la commande d'installation à exécuter une fois par clone.
 
 ```bash
-uv run manage.py test accounts tracker jobhunt rls
-uv run pyflakes jobhunt accounts tracker rls
+uv run manage.py test accounts tracker jobhunt rls jobhunt_ai
+uv run pyflakes jobhunt accounts tracker rls jobhunt_ai
 pyright   # installé à part (uv tool install pyright) ; lit [tool.pyright] de pyproject.toml
 ```
+
+Les tests du copilote tournent avec un modèle simulé (`jobhunt_ai/tests/fakes.py`) :
+aucun appel réseau, aucun coût. Ceux de la production SaaS importent le SDK
+`openai`, donc la suite complète veut l'extra `azure` (`uv sync --all-extras`,
+ce que fait le pipeline).
 
 Sous Claude Code, `.claude/settings.json` branche un hook (`.claude/hooks/check-python.sh`)
 qui relance `pyright` et `pyflakes` sur tout le projet après chaque fichier Python
@@ -595,7 +602,7 @@ et `tracker.W001` s'affichent au démarrage, c'est attendu.
 
 | Fichier | Rôle |
 | --- | --- |
-| `pyproject.toml` | Les dépendances déclarées : Django, openpyxl, pypdf et python-docx (texte des CV), plus pyflakes, django-stubs et requests (tests d'intégration Azurite) dans le groupe `dev`, `psycopg` dans l'extra `postgres` et `azure-storage-blob` + `azure-identity` dans l'extra `azure` (un déploiement fait `uv sync --extra postgres --extra azure`, à chaque `sync`). |
+| `pyproject.toml` | Les dépendances déclarées : Django, openpyxl, pypdf et python-docx (texte des CV) ; pour le copilote, django-q2 (file durable), anthropic, openai, langgraph, pydantic, httpx, beautifulsoup4 et langchain-mcp-adapters (Bright Data) ; plus pyflakes, django-stubs et requests (tests d'intégration Azurite) dans le groupe `dev`, `psycopg` dans l'extra `postgres`, `azure-storage-blob` + `azure-identity` dans l'extra `azure`, gunicorn + whitenoise dans l'extra `deploy` (un déploiement fait `uv sync --extra postgres --extra azure --extra deploy`, à chaque `sync`). |
 | `uv.lock` | Les versions exactes, **à committer** : c'est ce qui rend l'environnement reproductible. |
 | `.python-version` | Python 3.12 ; `uv` le télécharge tout seul s'il manque. |
 
@@ -626,66 +633,213 @@ uv export --no-dev --extra postgres --format requirements-txt > requirements.txt
   création/modification fonctionnent ; les actions rapides (changer un statut,
   ajouter un événement, la fenêtre d'ajout) en ont besoin.
 
-## Extensions
+## Copilote IA
 
-L'application découvre des extensions installées comme paquets Python via le
-point d'entrée `jobhunt.plugins` (voir `jobhunt/plugins.py`) : app Django,
-URLs montées sous leur préfixe, entrées de navigation, badges (la fonction
-reçoit la requête et compte pour le profil connecté) et panneaux injectés dans
-la fiche candidature. Le cœur n'en liste aucune en dur — installer le paquet
-active l'extension, le désinstaller retire tout. Une extension range ses
-propres données par profil comme le cœur : un champ `owner`, et
-`accounts.services.owned_or_404` pour retrouver une ligne. Pour lire un
-fichier téléversé, elle passe par le port de stockage
-(`tracker.adapters.storage().open_file(document.file.name)`, ou
-`extract_and_anonymize_text`) : `document.file.path` n'existe que sur le
-disque, pas chez Azure, et un `document.file.save(...)` se fait hors
-transaction — un envoi réseau ne se tient pas au milieu d'une transaction
-PostgreSQL. Pour recevoir le texte anonymisé d'un CV téléversé, l'extension
-déclare `cv_analyzer` sur son descripteur (voir « Stockage des fichiers »).
-Elle peut aussi déclarer `required_apps` : ces dépendances Django sont
-chargées avant elle, une seule fois même si plusieurs extensions les utilisent.
+Le copilote est l'app `jobhunt_ai`, livrée avec le cœur et activée par défaut.
+`COPILOT_ENABLED=0` l'éteint d'un bloc : son app et `django_q` sortent de
+`INSTALLED_APPS`, ses URLs (`/copilote/`), son entrée de navigation, son panneau
+sur la fiche candidature et l'analyse de CV disparaissent avec elles, et rien de
+`jobhunt_ai` n'est importé. Dans le code, la vérité du moment est
+`apps.is_installed("jobhunt_ai")` ; les gabarits reçoivent `copilot_enabled`
+(`tracker.context_processors.navigation`), et `tracker/context_processors.py`
+n'importe `jobhunt_ai.hooks` que si l'app est là. Sur une base PostgreSQL déjà
+migrée avec le copilote, ses tables `django_q_*` restent en place : elles ne
+portent que des identifiants d'exécution et `rls` les autorise par nom
+(`rls.sql.QUEUE_TABLES`), donc l'instance reste valide sans rien supprimer.
 
-C'est le mécanisme qu'utilise le copilote IA (extension propriétaire,
-développée hors de ce dépôt). Ces commandes chargent les variables de `.env`
-(à créer si nécessaire), que Django ne charge pas automatiquement :
+Quatre agents, construits avec **LangGraph** (orchestration) et les SDK officiels
+**OpenAI / Anthropic** (appels au modèle, sorties structurées) :
+
+| Agent | Ce qu'il fait |
+| --- | --- |
+| **Analyse de CV** | PDF, DOCX, TXT ou MD → profil candidat structuré (compétences, expériences, formation…). Le texte est extrait et **anonymisé par le cœur** avant d'arriver ici (voir [Un CV vers l'IA, anonymisé](#un-cv-vers-lia-anonymisé)) ; un scan sans couche texte est rangé et laissé de côté. |
+| **Évaluation** | profil × offre → score de compatibilité (écrit dans `Application.score`), verdict, forces/faiblesses/stratégie, et lacunes synchronisées vers la page Analyse. |
+| **Génération de CV** | profil + offre + dernière évaluation → CV ATS ciblé (DOCX sobre : une colonne, pas de tableaux), rangé dans les documents de la candidature. |
+| **Veille** | requêtes dérivées du profil → lecture des sites d'offres configurés (via **Bright Data**, qui déjoue les protections anti-robot) → extraction par le modèle → dédoublonnage contre tes candidatures → pistes **pré-triées** à trier, importables en un clic. |
+
+Le pré-tri de la veille et l'évaluation partagent **une seule définition du
+score** (`SCORE_SCALE`, dans `jobhunt_ai/agents/qualifications.py`), incluse
+mot pour mot dans les deux invites, avec les seuils des pastilles de
+l'interface : 80 et plus « candidature évidente », 65 à 79 « ça vaut le
+coup », 50 à 64 « pari risqué ». Le pré-tri ne voit qu'un extrait de la page
+de résultats et le dit par sa **fiabilité** plutôt qu'en maquillant la note ;
+l'évaluation lit l'annonce entière. La grille de qualifications qu'utilise la
+veille est dérivée une fois par profil (`CandidateProfile.qualifications`) ;
+un nouveau CV donne un nouveau profil, donc une grille fraîche.
+
+Ce que le copilote écrit dans le cœur passe par `jobhunt_ai/services/` :
+`applications.py` (import d'une piste, rapport d'évaluation → `Application`,
+lacunes → `SkillGap`, CV généré → `Document`), `documents.py` (réception d'un
+CV, écriture d'un document hors transaction) et `accounts.py` (identité et
+préférences du compte). Ses sept tables portent une politique RLS
+(`jobhunt_ai/migrations/0006_rls.py`, `0009`, `0010` ; règles déclarées dans
+`jobhunt_ai/apps.py`), et le worker ouvre un `rls.as_user(owner_id)` autour de
+chaque accès à la base, jamais autour d'un appel au modèle ou du scraping.
+
+### Lancer le copilote
+
+Le serveur web met les agents en file ; un processus **Django-Q2** à part les
+exécute. Sans lui, les tâches restent en attente. Ces commandes chargent `.env`
+(à créer d'après `.env.example`), que Django ne lit pas de lui-même :
 
 ```bash
-uv pip install -e ../JobHunt-AI
-uv run --env-file .env --no-sync manage.py migrate
-uv run --env-file .env --no-sync manage.py runserver
-# Dans un autre terminal, même environnement :
-uv run --env-file .env --no-sync manage.py qcluster
+uv run --env-file .env manage.py runserver
+# Dans un deuxième terminal :
+uv run --env-file .env manage.py qcluster
 ```
 
-`uv sync` réaligne strictement `.venv` sur `uv.lock` et retire donc les
-extensions installées à la main — d'où le `--no-sync` ci-dessus (déjà en
-place dans `.claude/launch.json`) ; réinstalle l'extension après un `sync`.
-Hors `runserver` (production, `JOBHUNT_AUTO_MIGRATE=0`), lance
-`manage.py migrate` après l'installation.
+Hors `runserver` (production, `JOBHUNT_AUTO_MIGRATE=0`), `manage.py migrate`
+reste une étape explicite : les migrations de `jobhunt_ai` et de `django_q`
+s'appliquent avec les autres. Sur PostgreSQL, web et worker tournent avec le
+rôle applicatif, les migrations avec le propriétaire (voir
+[Isolation des données](#isolation-des-données-rls)). En production, supervise
+le worker et lance `manage.py reconcile_ai_runs` chaque minute pour clôturer
+les tâches expirées (`--owner-id` pour un seul compte) ; `deploy/` contient
+les unités systemd du worker et du minuteur. Le guide
+[docs/async-tasks.md](docs/async-tasks.md) décrit la file, le contrat de l'API
+JSON (`/copilote/api/…`), les délais et la reprise après interruption.
 
-L'accès au copilote dépend du compte : `accounts.Profile.premium_until` doit
-être une date future et le compte doit être actif. Aucune clé d'activation
-n'est demandée aux utilisateurs, et `DEBUG` ne donne pas accès. En attendant
-Stripe, un administrateur du service en mode `accounts` peut renseigner la fin
-de période payée dans **Administration → Profils → Premium jusqu'au**.
-Cette date est en lecture seule dans l'administration locale. Le futur backend de
-paiement maintiendra cette date ; Stripe n'est pas encore intégré. Les comptes
-existants restent gratuits par défaut. Applique les migrations du cœur avant
-le redémarrage.
+### Accès Premium
 
-Les clés du fournisseur IA sont des secrets d'exploitation côté serveur.
-Elles ne sont requises qu'au moment des appels IA, sans bloquer le démarrage
-Django ni déterminer l'accès Premium. Les comptes gratuits peuvent continuer
-à déposer leurs CV sans déclencher d'analyse payante.
+Le copilote s'ouvre à un compte actif dont `accounts.Profile.premium_until`
+est une date future — `accounts.services.has_premium(user)` relit la base à
+chaque requête, à la mise en file et avant chaque étape d'une tâche ;
+`profile.is_premium` en est le miroir sur une instance déjà chargée, pour les
+gabarits. Aucune clé de licence ni clé API n'est demandée aux utilisateurs ;
+activer `DEBUG` ou être administrateur de l'installation ne donne aucun droit.
+Une page du copilote répond 402 à un compte gratuit, un fragment HTMX le
+renvoie vers `/copilote/`. Les comptes gratuits rangent leurs CV sans lancer
+d'analyse.
 
-Le copilote utilise Django-Q2 : le serveur web met les agents en file, le
-processus `qcluster` les exécute. Les variables `JOBHUNT_Q_WORKERS` (2),
-`JOBHUNT_Q_TIMEOUT` (1800 s) et `JOBHUNT_Q_RETRY` (5520 s) configurent la file
-ORM sur la base `default`. En production, supervise le worker et exécute
-`manage.py reconcile_ai_runs` chaque minute pour clôturer les tâches expirées.
-Le guide `docs/async-tasks.md` de l'extension contient le contrat API et les
-modèles de services de production.
+En attendant Stripe, un administrateur du service en mode `accounts` renseigne
+la fin de période payée dans **Administration → Profils → Premium jusqu'au** ;
+en mode `local`, cette date est en lecture seule. Le futur backend de paiement
+maintiendra cette date après confirmation du paiement ; aucun checkout ni
+webhook n'est encore implémenté, et les comptes existants restent gratuits
+tant qu'aucun droit ne leur est attribué.
+
+Une instance commerciale (`IS_SAAS_PRODUCTION=true`) ouvre le copilote à tout
+compte et le mesure par quotas de requêtes (gratuit/payant), les appels
+utilisant le fournisseur choisi par `JOBHUNT_AI_PROVIDER` : voir
+[docs/azure-saas.md](docs/azure-saas.md). Le déploiement de validation utilise
+OpenAI directement et conserve `IS_SAAS_PRODUCTION=false`.
+
+La clé du fournisseur IA appartient à l'exploitant. Son absence ne bloque ni
+Django ni l'accès Premium : un appel IA échoue alors proprement avec un
+message d'indisponibilité, le détail restant dans les journaux.
+
+### Configuration
+
+Le copilote lit des réglages Django `JOBHUNT_AI_*` (`jobhunt_ai/settings.py`
+tient les défauts) ; `jobhunt/settings.py` les remplit depuis les variables
+d'environnement du même nom, et accepte encore les anciens noms Anthropic et
+Bright Data. `.env.example` en donne le résumé.
+
+| Variable | Défaut | Rôle |
+| --- | --- | --- |
+| `COPILOT_ENABLED` | `1` | `0` pour une instance sans copilote |
+| `JOBHUNT_AI_PROVIDER` | compatibilité historique | `openai`, `azure_openai` ou `anthropic` ; indépendant des droits utilisateurs |
+| `JOBHUNT_AI_OPENAI_API_KEY` | — | clé OpenAI Platform, fournie par Key Vault sur App Service ; `OPENAI_API_KEY` aussi accepté localement |
+| `JOBHUNT_AI_API_KEY` | — | secret Anthropic, géré par l'exploitant ; facultatif au démarrage, utilisé seulement à l'exécution (`ANTHROPIC_API_KEY` reste accepté) |
+| `JOBHUNT_AI_MODEL` | `claude-opus-5` | modèle utilisé |
+| `JOBHUNT_AI_MAX_TOKENS` | `16000` | jetons de sortie par appel |
+| `JOBHUNT_AI_LOCATION` / `_RADIUS_KM` | `Nivelles, Belgique` / `40` | replis de la veille quand le profil n'a ni point de départ ni rayon |
+| `JOBHUNT_AI_SCOUT_SOURCES` | ICTjob, Jobat, LinkedIn, Indeed | sources de la veille, en JSON, voir ci-dessous |
+| `JOBHUNT_AI_SCOUT_MAX_QUERIES` / `_MAX_PAGES` / `_PAGE_CHARS` | 2 / 8 / 28000 | garde-fous de la veille (le plafond de pages doit couvrir requêtes × sources) |
+| `JOBHUNT_AI_EAGER` | `0` | réservé aux doublures de tests ; refusé par les checks de démarrage |
+| `JOBHUNT_Q_WORKERS` / `_TIMEOUT` / `_RETRY` | 2 / 1800 / 3 × timeout + 120 | processus du cluster, durée maximale d'une tâche et délai de remise en file (secondes) |
+| `JOBHUNT_AI_QUEUE_TTL` | `86400` | attente maximale en file avant expiration (secondes) |
+| `JOBHUNT_AI_WORKER_GRACE` | `60` | marge ajoutée au délai d'une tâche réclamée (secondes) |
+| `JOBHUNT_AI_SCRAPE_TIMEOUT` / `_ANALYZE_TIMEOUT` | 180 / 900 | délais par cible de veille, lecture puis analyse (secondes, au plus le timeout du cluster) |
+| `JOBHUNT_AI_LLM_TIMEOUT` / `_MAX_RETRIES` | 120 / 2 | délai réseau par appel au modèle et reprises du SDK |
+| `JOBHUNT_AI_BRIGHTDATA_API_TOKEN` | — | jeton [Bright Data](https://brightdata.com/cp/mcp) (`BRIGHTDATA_API_TOKEN` aussi accepté) |
+| `JOBHUNT_AI_BRIGHTDATA_MCP_URL` | `https://mcp.brightdata.com/mcp` | point d'accès MCP ; le jeton y est ajouté à la volée |
+| `JOBHUNT_AI_BRIGHTDATA_TIMEOUT` | `90` | secondes ; débloquer une page peut être long |
+| `JOBHUNT_AI_BRIGHTDATA_FALLBACK` | `1` | `0` pour voir l'erreur Bright Data au lieu de retomber sur la lecture directe |
+
+Les réglages de l'offre hébergée (`IS_SAAS_PRODUCTION`, `JOBHUNT_AI_OPENAI_*`, `JOBHUNT_AI_AZURE_*`,
+`JOBHUNT_AI_FREE_*` / `_PAID_*`, `JOBHUNT_AI_UPGRADE_URL`) sont décrits dans
+[docs/azure-saas.md](docs/azure-saas.md).
+
+### Bright Data
+
+`httpx` + BeautifulSoup se font refuser par la plupart des sites d'offres
+(anti-robot, rendu JavaScript, CAPTCHA). La veille passe donc par le **serveur
+MCP distant de Bright Data** (`jobhunt_ai/scraping/brightdata.py`), qui
+débloque la page et la rend en Markdown — déjà propre pour le modèle. Sans
+jeton, on retombe sur la lecture directe, qui ne marche plus que sur les
+sites les plus ouverts. Récupère le jeton sur <https://brightdata.com/cp/mcp>
+et pose-le dans `.env` :
+
+```bash
+BRIGHTDATA_API_TOKEN=…
+```
+
+Transport *streamable HTTP*, authentification par `?token=` : rien à
+installer, pas de Node.js. Les deux outils utilisés — `scrape_as_markdown` et
+`search_engine` — font partie du socle toujours exposé. Pour en ouvrir
+d'autres, ajoute les paramètres de Bright Data à l'URL :
+
+```bash
+JOBHUNT_AI_BRIGHTDATA_MCP_URL="https://mcp.brightdata.com/mcp?groups=browser"
+```
+
+`brightdata.py` expose aussi `get_tools()`, qui rend **tous** les outils du
+serveur sous forme d'outils LangChain — de quoi confier le choix à un agent
+(`create_react_agent(model, brightdata.get_tools())`) au lieu de les appeler
+soi-même. La veille, elle, les appelle directement : le traitement reste
+déterministe, testable et borné en jetons.
+
+Le jeton doit être vu par le **worker** : posé dans le seul processus web, il
+ne configure rien. Si Jobat ou Indeed répond 403, vérifie-le sans rien
+afficher de secret :
+
+```bash
+uv run --env-file .env python -c 'from jobhunt_ai.scraping.brightdata import is_configured; print(is_configured())'
+```
+
+Un worker déjà lancé garde ses réglages en instantané : redémarre-le après
+avoir changé un jeton ou une source.
+
+### Sources de la veille
+
+Par défaut : **ICTjob**, **Jobat**, **LinkedIn** et **Indeed**. Les deux
+derniers ne sont lisibles qu'à travers Bright Data — c'est précisément là que
+le blocage anti-robot était total.
+
+Deux formes de source, avec les emplacements `{query}`, `{location}` et
+`{radius}` :
+
+```json
+[
+  {"name": "ICTjob", "url": "https://www.ictjob.be/fr/chercher-emplois-it?keywords={query}"},
+  {"name": "LinkedIn", "url": "https://www.linkedin.com/jobs/search?keywords={query}&location={location}&f_TPR=r604800"},
+  {"name": "Indeed", "url": "https://be.indeed.com/emplois?q={query}&l={location}&radius={radius}&fromage=7"},
+  {"name": "Google", "search": "{query} emploi Brabant wallon", "engine": "google", "geo_location": "be"}
+]
+```
+
+- `url` — une page de résultats à lire ;
+- `search` — une recherche passée au moteur (`google`, `bing` ou `yandex`),
+  qui ne dépend d'aucun site en particulier.
+
+`{location}` et `{radius}` reçoivent le point de départ et le rayon du profil
+(à défaut `JOBHUNT_AI_LOCATION` / `_RADIUS_KM`) ; un gabarit qui ne s'en sert
+pas — les sites belges ne prennent que les mots-clés — reste valide. Dans une
+source `url` ils sont encodés pour la chaîne de requête, dans une source
+`search` ils restent en clair.
+
+Deux détails qui ont demandé une vérification sur pièce :
+
+- **Indeed** : le chemin français `/emplois`, pas `/jobs` — ce dernier renvoie
+  une page vide même à travers Bright Data. Ses liens d'annonce sont relatifs,
+  donc résolus contre l'URL de recherche.
+- **LinkedIn** : la page publique liste une soixantaine d'offres avec des
+  liens absolus, sans connexion. `f_TPR=r604800` et `fromage=7` limitent les
+  deux sources aux sept derniers jours, ce qu'attend une veille.
+
+L'extraction des annonces est faite par le modèle, donc pas de sélecteurs CSS
+à maintenir : un changement de mise en page ne casse pas une source.
 
 ## Architecture : ports et adaptateurs
 
@@ -705,8 +859,8 @@ connaissent que des *ports* (des interfaces), et la base de données n'est qu'un
 | Adaptateur web | `tracker/views.py`, `tracker/queries.py` | Les vues traduisent la requête HTTP et rendent ; `queries.py` porte les lectures de pages (filtres, tableau de bord, analyse) directement en ORM. |
 
 Les modèles restent les entités — les gabarits reçoivent toujours des instances
-— et `tracker.models` reste l'API publique des extensions : rien ne change pour
-elles.
+— et `tracker.models` reste l'API publique du copilote et de toute autre app :
+rien ne change pour eux.
 
 ### Ce que la couture achète, et ce qu'elle n'achète pas
 
@@ -714,7 +868,7 @@ elles.
   `Model.objects` — un test d'architecture le vérifie à chaque exécution.
 - Des tests de règles sans base : les cas d'usage tournent sur
   `MemoryPersistence` dans un `SimpleTestCase`, en quelques millisecondes.
-- Un point d'appui pour les extensions : appeler `services.change_status(...)`
+- Un point d'appui pour le copilote et toute autre app : appeler `services.change_status(...)`
   ou `persistence().applications.get(user, pk)` plutôt que refaire les règles.
 
 En revanche, le moteur de base de données ne se choisit **pas** ici. SQLite et
@@ -789,7 +943,7 @@ La suite complète tourne de toute façon avec un `MEDIA_ROOT` temporaire
 (`rls.testing.TestRunner`) : un test distrait ne salit pas le dossier du
 projet.
 
-### Utiliser les ports depuis une extension
+### Utiliser les ports depuis une autre app
 
 ```python
 from django.http import Http404

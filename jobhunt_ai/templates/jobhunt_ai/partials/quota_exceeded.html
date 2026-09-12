@@ -1,0 +1,19 @@
+<div class="panel t-indigo" {% if run %}id="run-{{ run.pk }}"{% endif %} role="status" aria-live="polite">
+  <div class="panel__head"><span class="eyebrow">Limite IA atteinte</span></div>
+  <div class="panel__body">
+    <p class="prose prose--tight">{{ quota.message }}</p>
+    {% if quota.can_upgrade %}
+      <p class="meta">Passe à Premium — 29 $/mois — pour une allocation IA plus élevée.</p>
+      {% if upgrade_url %}
+        <a class="btn" href="{{ upgrade_url }}">Passer à Premium</a>
+      {% else %}
+        <p class="meta">Contacte l'équipe pour passer à Premium.</p>
+      {% endif %}
+    {% elif quota.period == "month" %}
+      <p class="meta">Ton allocation sera renouvelée au début du prochain mois (UTC).</p>
+    {% endif %}
+    {% if run.result.created %}
+      <p class="meta">Les pistes déjà trouvées restent disponibles <a href="{% url 'jobhunt_ai:leads' %}">dans tes pistes</a>.</p>
+    {% endif %}
+  </div>
+</div>

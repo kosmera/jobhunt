@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock, skipUnless
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser, Group, User
 from django.contrib.sessions.backends.db import SessionStore
@@ -210,6 +211,13 @@ class SqlTests(SimpleTestCase):
         for table in sql.BOOKKEEPING_TABLES:
             self.assertIn(f'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE "{table}" FROM jobhunt_app', block)
         self.assertIn("to_regclass", block)
+
+    @skipUnless(apps.is_installed("django_q"), "the queue tables come with the copilot")
+    def test_queue_tables_are_allowed_by_name(self):
+        # The names must match the models: the allow-list works without them.
+        queue = {apps.get_model("django_q", name)._meta.db_table for name in ("OrmQ", "Schedule", "Task")}
+        self.assertEqual(set(sql.QUEUE_TABLES), queue)
+        self.assertTrue(queue <= set(sql.UNPROTECTED_ALLOWED))
 
     def test_role_name_is_validated(self):
         self.assertEqual(sql.role_name("jobhunt_app"), "jobhunt_app")
@@ -523,6 +531,21 @@ class PolicyTests(TestCase):
             registry, "_exempt", registry._exempt | {"rls.probe"},
         ):
             self.assertNotIn("rls_probe_unprotected", verify.inspect(connection).unprotected)
+
+    @skipUnless(apps.is_installed("django_q"), "the queue tables come with the copilot")
+    def test_queue_tables_stay_allowed_once_the_copilot_is_off(self):
+        # ``COPILOT_ENABLED=0`` on a database migrated with the copilot: the
+        # django_q tables remain, readable by the application role, and no
+        # model carries ``rls.exempt`` any more. The guard must not turn
+        # that into ``ImproperlyConfigured`` on the first request.
+        with mock.patch.object(registry, "_exempt", set()):
+            report = verify.inspect(connection)
+            with app_role():  # what the middleware sees on the first request
+                problems = verify.problems(connection, runtime=True)
+        for table in sql.QUEUE_TABLES:
+            with self.subTest(table=table):
+                self.assertNotIn(table, report.unprotected)
+        self.assertEqual(problems, [])
 
     def test_rows_for_another_account_are_refused(self):
         with app_role(), context.as_user(self.alice):

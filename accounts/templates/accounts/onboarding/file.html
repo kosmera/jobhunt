@@ -22,8 +22,8 @@
           <svg aria-hidden="true"><use href="#i-send"></use></svg>
           <span>
             {% if card.status == "analyzed" %}Transmis au copilote, anonymisé — son analyse apparaîtra dans Documents.
-            {% elif card.status == "no_plugin" %}Aucune extension installée : rien n'a quitté ta bibliothèque.
-            {% elif card.status == "not_analyzed" %}L'extension n'a pas pu l'analyser — le fichier est gardé quand même.
+            {% elif card.status == "no_plugin" %}Copilote désactivé sur cette instance : rien n'a quitté ta bibliothèque.
+            {% elif card.status == "not_analyzed" %}Le copilote n'a pas pu l'analyser — le fichier est gardé quand même.
             {% else %}Trop court ou illisible pour être analysé — gardé quand même.{% endif %}
           </span>
         </div>

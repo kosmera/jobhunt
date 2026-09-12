@@ -31,7 +31,6 @@ from django.core.management import call_command
 from django.db import connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import (
-    RequestFactory,
     SimpleTestCase,
     TestCase,
     TransactionTestCase,
@@ -42,9 +41,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 import tracker
+from accounts.models import Profile
 from accounts.services import LOCAL_USERNAME, preferences_for, profile_for
 from accounts.testing import OwnedTestCase, make_user
-from jobhunt import plugins as plugin_registry
 from jobhunt.storage import parse_connection_string
 from tracker import checks, domain, links, privacy, queries, services
 from tracker.adapters import cv_analyzer, document_text, persistence, storage
@@ -74,6 +73,13 @@ from tracker.models import (
 from tracker.ports import MissingFile, NotFound, StorageError, StoragePort
 
 MEDIA = tempfile.mkdtemp(prefix="jobhunt-tests-")
+
+
+def _copilot_installed() -> bool:
+    """Whether ``jobhunt_ai`` is on this run (``COPILOT_ENABLED``)."""
+    from django.apps import apps
+
+    return apps.is_installed("jobhunt_ai")
 
 #: A base64 account key, as ``generate_blob_sas`` decodes it before signing.
 AZURE_KEY = base64.b64encode(b"k" * 32).decode()
@@ -429,7 +435,7 @@ class PageRenderTests(OwnedTestCase):
         import re
 
         html = self.client.get(reverse("tracker:dashboard")).content.decode()
-        # Le cœur et chaque extension apportent leur propre sprite.
+        # Le cœur et le copilote apportent chacun leur propre sprite.
         sprites = re.findall(r"(<svg width=\"0\".*?</svg>)", html, re.S)
         self.assertTrue(sprites, "aucun sprite trouvé dans la page")
 
@@ -1385,92 +1391,49 @@ class ImportCommandTests(OwnedTestCase):
             call_command("import_legacy", workbook="/nowhere/absent.xlsx", verbosity=0)
 
 
-class PluginFrameworkTests(TestCase):
-    """Le cœur doit fonctionner avec zéro, une ou une extension cassée."""
+class CopilotChromeTests(TestCase):
+    """Le cœur affiche le copilote quand il est installé, et rien sinon."""
 
-    def _with_entry_points(self, entries):
-        """Fait tourner la découverte sur une liste de points d'entrée factices."""
-        from unittest import mock
+    def setUp(self):
+        self.user = make_user("Lionel")
+        self.client.force_login(self.user)
 
-        from jobhunt import plugins
-
-        patcher = mock.patch.object(plugins, "entry_points", return_value=entries)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        plugins.get_plugins.cache_clear()
-        self.addCleanup(plugins.get_plugins.cache_clear)
-        return plugins
-
-    def test_no_plugins_yields_empty_registry(self):
-        plugins = self._with_entry_points([])
-        request = RequestFactory().get("/")
-        request.user = make_user("Lionel")
-        self.assertEqual(plugins.get_plugins(), ())
-        self.assertEqual(plugins.plugin_apps(), [])
-        self.assertEqual(plugins.plugin_nav_items(), [])
-        self.assertEqual(plugins.plugin_nav_badges(request), {})
-        self.assertEqual(plugins.plugin_templates("icon_templates"), [])
-
-    def test_broken_plugin_is_skipped(self):
-        from unittest import mock
-
-        broken = mock.Mock()
-        broken.name = "casse"
-        broken.load.side_effect = ImportError("paquet manquant")
-        plugins = self._with_entry_points([broken])
-        self.assertEqual(plugins.get_plugins(), ())
-
-    def test_declared_plugin_is_exposed(self):
-        from types import SimpleNamespace
-        from unittest import mock
-
-        descriptor = SimpleNamespace()
-        descriptor.app = "exemple.apps.ExempleConfig"
-        descriptor.nav_items = [("exemple:index", "Exemple", "gauge", None)]
-        descriptor.nav_badges = ""
-        descriptor.icon_templates = ["exemple/icons.html"]
-        descriptor.application_panels = []
-        entry = mock.Mock()
-        entry.name = "exemple"
-        entry.load.return_value = descriptor
-        plugins = self._with_entry_points([entry])
-        self.assertEqual(plugins.plugin_apps(), ["exemple.apps.ExempleConfig"])
-        self.assertEqual(len(plugins.plugin_nav_items()), 1)
-        self.assertEqual(plugins.plugin_templates("icon_templates"), ["exemple/icons.html"])
-
-    def test_plugin_required_apps_are_loaded_once_before_the_plugins(self):
-        from types import SimpleNamespace
-        from unittest import mock
-
-        entries = []
-        for name in ("one", "two"):
-            entry = mock.Mock()
-            entry.name = name
-            entry.load.return_value = SimpleNamespace(app=name, required_apps=("django_q",))
-            entries.append(entry)
-        plugins = self._with_entry_points(entries)
-        self.assertEqual(plugins.plugin_apps(), ["django_q", "one", "two"])
-
-    def test_navigation_pages_render_without_plugins(self):
-        """Les pages du cœur ne dépendent d'aucune extension."""
-        from unittest import mock
-
-        self.client.force_login(make_user("Lionel"))
-
-        for function in ("plugin_nav_items", "plugin_nav_badges"):
-            patcher = mock.patch(
-                f"tracker.context_processors.{function}",
-                return_value=[] if function == "plugin_nav_items" else {},
-            )
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        patcher = mock.patch("tracker.context_processors.plugin_templates", return_value=[])
-        patcher.start()
-        self.addCleanup(patcher.stop)
+    def test_the_context_says_whether_the_copilot_is_on(self):
+        from django.apps import apps
 
         response = self.client.get(reverse("tracker:dashboard"))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["plugin_icon_templates"], [])
+        self.assertEqual(response.context["copilot_enabled"], apps.is_installed("jobhunt_ai"))
+
+    @skipUnless(_copilot_installed(), "le copilote n'est pas installé")
+    def test_the_copilot_entry_and_its_icon_are_on_the_dashboard(self):
+        response = self.client.get(reverse("tracker:dashboard"))
+        self.assertEqual(response.status_code, 200)
+        labels = [item["label"] for item in response.context["nav_items"]]
+        self.assertEqual(labels[-1], "Copilote")
+        self.assertContains(response, reverse("jobhunt_ai:copilot"))
+        self.assertContains(response, 'id="i-sparkle"')
+        self.assertContains(response, '<use href="#i-sparkle"')
+
+    @skipUnless(_copilot_installed(), "le copilote n'est pas installé")
+    def test_the_leads_badge_only_counts_for_a_premium_account(self):
+        response = self.client.get(reverse("tracker:dashboard"))
+        self.assertNotIn("ai_leads", response.context["nav_counters"])
+
+        Profile.objects.filter(user=self.user).update(
+            premium_until=timezone.now() + dt.timedelta(days=30)
+        )
+        response = self.client.get(reverse("tracker:dashboard"))
+        self.assertEqual(response.context["nav_counters"].get("ai_leads"), 0)
+
+    @skipUnless(not _copilot_installed(), "le copilote est installé")
+    def test_without_the_copilot_the_chrome_has_no_trace_of_it(self):
+        response = self.client.get(reverse("tracker:dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["copilot_enabled"])
+        self.assertEqual(len(response.context["nav_items"]), 5)
+        self.assertNotContains(response, "/copilote/")
+        self.assertNotContains(response, "i-sparkle")
 
 
 class AutoMigrateRunserverTests(TestCase):
@@ -3545,13 +3508,6 @@ class StorageResolverTests(SimpleTestCase):
             with override_settings(CV_ANALYZER=None):
                 self.assertIsInstance(cv_analyzer(), CVEventPublisher)
 
-    def test_two_extensions_offering_the_same_service_is_a_configuration_error(self):
-        two = (SimpleNamespace(name="a", cv_analyzer="x.A"), SimpleNamespace(name="b", cv_analyzer="x.B"))
-        with mock.patch.object(plugin_registry, "get_plugins", return_value=two):
-            with self.assertRaises(ImproperlyConfigured):
-                plugin_registry.plugin_attribute("cv_analyzer")
-            self.assertEqual(plugin_registry.plugin_attribute("absent"), "")
-
 
 class StorageCheckTests(SimpleTestCase):
     def check(self, provider, options, missing=()):
@@ -3689,7 +3645,7 @@ class ArchitectureGuardTests(SimpleTestCase):
 
     def test_services_stay_clear_of_django_plumbing(self):
         forbidden = {
-            "services.py": ("django.db", "django.shortcuts", "jobhunt.plugins",
+            "services.py": ("django.db", "django.shortcuts",
                             "tracker.queries", "tracker.adapters.django_orm",
                             "tracker.adapters.file_storage", "tracker.adapters.azure_storage",
                             "tracker.links", "azure"),

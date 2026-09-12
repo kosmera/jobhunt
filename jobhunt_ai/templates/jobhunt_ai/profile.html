@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Profil candidat — JobHunt{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <span class="eyebrow">copilote · profil</span>
+    <h1 class="page-title">Profil candidat</h1>
+    <p class="page-lede">
+      Ce que le copilote sait de toi, extrait de tes CV. C'est la matière première des scores
+      de compatibilité, de la veille et des CV générés.
+    </p>
+  </div>
+
+  <div class="stack">
+    <section class="panel t-indigo">
+      <div class="panel__head">
+        <span class="eyebrow">Analyser un CV</span>
+        <span class="panel__actions meta">PDF, DOCX, TXT ou MD</span>
+      </div>
+      <div class="panel__body">
+        {% if active_run %}
+          {% include "jobhunt_ai/partials/run_status.html" with run=active_run %}
+        {% else %}
+          {% include "jobhunt_ai/partials/upload_form.html" %}
+        {% endif %}
+      </div>
+    </section>
+
+    {% if profiles|length > 1 %}
+      <section class="panel">
+        <div class="panel__head"><span class="eyebrow">Profils disponibles</span></div>
+        <div class="panel__body">
+          {% for candidate in profiles %}
+            <div style="display:flex;align-items:center;gap:.6rem;padding:.35rem 0">
+              <a href="{% url 'jobhunt_ai:profile' %}?profil={{ candidate.pk }}"
+                 style="font-size:.86rem;{% if candidate == profile %}font-weight:600;{% endif %}color:inherit">{{ candidate.label }}</a>
+              {% if candidate.is_primary %}<span class="pill t-indigo">principal</span>{% endif %}
+              <span class="meta" style="margin-left:auto">{{ candidate.updated_at|date:"d/m/Y" }}</span>
+              {% if not candidate.is_primary %}
+                <button type="button" class="btn btn--sm btn--ghost"
+                        hx-post="{% url 'jobhunt_ai:profile_set_primary' candidate.pk %}">Rendre principal</button>
+              {% endif %}
+              <button type="button" class="icon-btn"
+                      hx-post="{% url 'jobhunt_ai:profile_delete' candidate.pk %}"
+                      data-confirm="Supprimer le profil « {{ candidate.label }} » ?"
+                      aria-label="Supprimer {{ candidate.label }}">
+                <svg aria-hidden="true"><use href="#i-trash"></use></svg>
+              </button>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    {% if profile %}
+      <section class="panel">
+        <div class="panel__head">
+          <span class="eyebrow">{{ profile.label }}</span>
+          <span class="panel__actions">
+            {% if profile.is_primary %}<span class="pill t-indigo">principal</span>{% endif %}
+            {% if profiles|length == 1 %}
+              <button type="button" class="icon-btn"
+                      hx-post="{% url 'jobhunt_ai:profile_delete' profile.pk %}"
+                      data-confirm="Supprimer le profil « {{ profile.label }} » ?"
+                      aria-label="Supprimer le profil">
+                <svg aria-hidden="true"><use href="#i-trash"></use></svg>
+              </button>
+            {% endif %}
+          </span>
+        </div>
+        <div class="panel__body">
+          <div style="display:flex;gap:2rem;flex-wrap:wrap">
+            <div style="flex:1 1 260px;min-width:220px">
+              <p style="font-weight:600;font-size:1rem">{{ profile.full_name|default:"—" }}</p>
+              <p class="meta" style="margin-top:.2rem">{{ profile.headline }}</p>
+              {# Identité reprise du compte : le CV analysé est anonymisé et
+                 n'en porte plus que des marqueurs. Chaque élément est
+                 facultatif, d'où les séparateurs conditionnels. #}
+              {% if profile.location or profile.email or profile.phone %}
+                <div class="meta" style="margin-top:.6rem">
+                  {% if profile.location %}{{ profile.location }}{% endif %}
+                  {% if profile.location and profile.email %}<span class="meta__sep">·</span>{% endif %}
+                  {% if profile.email %}{{ profile.email }}{% endif %}
+                  {% if profile.phone and profile.location or profile.phone and profile.email %}<span class="meta__sep">·</span>{% endif %}
+                  {% if profile.phone %}{{ profile.phone }}{% endif %}
+                </div>
+              {% endif %}
+              {% for link in profile.links %}
+                <p class="meta" style="margin-top:.25rem"><a href="{{ link.url }}" target="_blank" rel="noopener">{{ link.label|default:link.url }}</a></p>
+              {% endfor %}
+            </div>
+            {% if profile.summary %}
+              <p class="prose" style="flex:2 1 320px;max-width:62ch;margin:0">{{ profile.summary }}</p>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head"><span class="eyebrow">Compétences</span></div>
+        <div class="panel__body">
+          {% for category, skills in profile.skills_by_category.items %}
+            <div style="margin-bottom:.7rem">
+              <div class="eyebrow" style="margin-bottom:.35rem">{{ category }}</div>
+              <div class="btn-row" style="flex-wrap:wrap;gap:.3rem">
+                {% for skill in skills %}
+                  <span class="chip is-on {% if skill.level == 'expert' %}t-green{% else %}t-blue{% endif %}">
+                    {{ skill.name }}{% if skill.years %} · {{ skill.years }} ans{% endif %}
+                  </span>
+                {% endfor %}
+              </div>
+            </div>
+          {% empty %}
+            <p class="meta">Aucune compétence extraite.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head"><span class="eyebrow">Expériences</span></div>
+        <div class="panel__body">
+          {% for experience in profile.experiences %}
+            <div style="padding:.6rem 0;{% if not forloop.last %}border-bottom:1px solid var(--rule){% endif %}">
+              <div style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap">
+                <strong style="font-size:.9rem">{{ experience.title }}</strong>
+                <span class="meta">{{ experience.company }}</span>
+                <span class="meta" style="margin-left:auto">
+                  {{ experience.start }}{% if experience.current %} → aujourd'hui{% elif experience.end %} → {{ experience.end }}{% endif %}
+                </span>
+              </div>
+              {% if experience.description %}
+                <p class="prose prose--tight" style="margin-top:.35rem;color:var(--ink-2)">{{ experience.description }}</p>
+              {% endif %}
+              {% if experience.achievements %}
+                <ul class="prose prose--tight" style="margin:.35rem 0 0 1rem">
+                  {% for achievement in experience.achievements %}<li>{{ achievement }}</li>{% endfor %}
+                </ul>
+              {% endif %}
+            </div>
+          {% empty %}
+            <p class="meta">Aucune expérience extraite.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <div class="cols cols--3">
+        <section class="panel">
+          <div class="panel__head"><span class="eyebrow">Formation</span></div>
+          <div class="panel__body">
+            {% for education in profile.education %}
+              <p style="font-size:.85rem;margin-bottom:.35rem">
+                <strong>{{ education.degree }}</strong><br>
+                <span class="meta">{{ education.school }}{% if education.year %} · {{ education.year }}{% endif %}</span>
+              </p>
+            {% empty %}<p class="meta">—</p>{% endfor %}
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel__head"><span class="eyebrow">Langues</span></div>
+          <div class="panel__body">
+            {% for language in profile.languages %}
+              <p style="font-size:.85rem;margin-bottom:.3rem">{{ language.name }} <span class="meta">{{ language.level }}</span></p>
+            {% empty %}<p class="meta">—</p>{% endfor %}
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel__head"><span class="eyebrow">Certifications</span></div>
+          <div class="panel__body">
+            {% for certification in profile.certifications %}
+              <p style="font-size:.85rem;margin-bottom:.3rem">
+                {{ certification.name }}
+                <span class="meta">{{ certification.issuer }}{% if certification.year %} · {{ certification.year }}{% endif %}</span>
+              </p>
+            {% empty %}<p class="meta">—</p>{% endfor %}
+          </div>
+        </section>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% load jobhunt_ai_text jobhunt_ai_extras %}
+{% copilot_access as can_use_copilot %}
+{% if can_use_copilot %}
+{% active_ai_run application as ai_run %}
+{% latest_match_report application as ai_report %}
+<section class="panel" id="ai-panel">
+  <div class="panel__head">
+    <span class="eyebrow">
+      <svg style="width:12px;height:12px;vertical-align:-1px" aria-hidden="true"><use href="#i-sparkle"></use></svg>
+      Copilote IA
+    </span>
+    {% if ai_report %}
+      <span class="panel__actions">
+        <span class="pill {% if ai_report.score >= 80 %}t-green{% elif ai_report.score >= 65 %}t-amber{% else %}t-red{% endif %}">{{ ai_report.score }} %</span>
+      </span>
+    {% endif %}
+  </div>
+  <div class="panel__body">
+    {% if ai_run %}
+      {% include "jobhunt_ai/partials/run_status.html" with run=ai_run panel=1 %}
+    {% else %}
+      {% if ai_report %}
+        <p class="prose prose--tight" style="color:var(--ink-2)">{{ ai_report.summary }}</p>
+        {% if ai_report.missing_skills %}
+          <div class="eyebrow" style="margin:.8rem 0 .4rem">Compétences manquantes</div>
+          <div class="btn-row" style="flex-wrap:wrap;gap:.3rem">
+            {% for skill in ai_report.missing_skills %}<span class="chip is-on t-red">{{ skill }}</span>{% endfor %}
+          </div>
+        {% endif %}
+        <details class="collapse" style="margin-top:.8rem">
+          <summary>Détail de l'évaluation</summary>
+          <div class="stack" style="gap:.7rem;margin-top:.6rem">
+            {% if ai_report.strengths %}
+              <div><div class="eyebrow" style="margin-bottom:.3rem">Pour toi</div>
+                <div class="prose prose--tight">{{ ai_report.strengths|richtext }}</div></div>
+            {% endif %}
+            {% if ai_report.weaknesses %}
+              <div><div class="eyebrow" style="margin-bottom:.3rem">Contre toi</div>
+                <div class="prose prose--tight">{{ ai_report.weaknesses|richtext }}</div></div>
+            {% endif %}
+            {% if ai_report.strategy %}
+              <div><div class="eyebrow" style="margin-bottom:.3rem">Angle d'attaque</div>
+                <div class="prose prose--tight">{{ ai_report.strategy|richtext }}</div></div>
+            {% endif %}
+            <p class="meta">Évalué le {{ ai_report.created_at|date:"d/m/Y H:i" }} · {{ ai_report.model_id }}</p>
+          </div>
+        </details>
+      {% else %}
+        <p class="meta">Pas encore d'évaluation pour cette offre.</p>
+      {% endif %}
+
+      <div class="btn-row" style="margin-top:.9rem">
+        <button type="button" class="btn btn--sm btn--primary"
+                hx-post="{% url 'jobhunt_ai:evaluate' application.pk %}"
+                hx-target="#ai-panel" hx-swap="outerHTML">
+          <svg aria-hidden="true"><use href="#i-radar"></use></svg>
+          {% if ai_report %}Réévaluer{% else %}Évaluer la compatibilité{% endif %}
+        </button>
+      </div>
+
+      <form style="margin-top:.55rem;display:flex;gap:.4rem"
+            hx-post="{% url 'jobhunt_ai:generate_cv' application.pk %}"
+            hx-target="#ai-panel" hx-swap="outerHTML">
+        <select class="input" name="language" aria-label="Langue du CV généré">
+          <option value="fr" {% if application.cv_language == "fr" %}selected{% endif %}>Français</option>
+          <option value="en" {% if application.cv_language == "en" %}selected{% endif %}>Anglais</option>
+          <option value="nl" {% if application.cv_language == "nl" %}selected{% endif %}>Néerlandais</option>
+        </select>
+        <button type="submit" class="btn btn--sm">
+          <svg aria-hidden="true"><use href="#i-doc-scan"></use></svg> Générer le CV
+        </button>
+      </form>
+
+      {% latest_generated_cv application as generated %}
+        {% if generated and generated.document %}
+          <p class="meta" style="margin-top:.6rem">
+            Dernier CV généré :
+            <a href="{{ generated.document.get_download_url }}">{{ generated.document.label }}</a>
+          </p>
+        {% endif %}
+
+    {% endif %}
+  </div>
+</section>
+{% else %}
+<section class="panel" id="ai-panel">
+  <div class="panel__head"><span class="eyebrow">Copilote IA · Premium</span></div>
+  <div class="panel__body">
+    <p class="prose prose--tight">Le copilote s'active automatiquement avec un abonnement Premium actif.</p>
+    <a class="btn" href="{% url 'jobhunt_ai:copilot' %}">Découvrir le copilote</a>
+  </div>
+</section>
+{% endif %}

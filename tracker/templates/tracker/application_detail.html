@@ -127,7 +127,7 @@
 
       <div class="stack">
         {% include "tracker/partials/status_panel.html" %}
-        {% for panel_template in plugin_application_panels %}{% include panel_template %}{% endfor %}
+        {% if copilot_enabled %}{% include "jobhunt_ai/partials/application_panel.html" %}{% endif %}
         {% include "tracker/partials/documents_panel.html" %}
         {% include "tracker/partials/contacts_panel.html" %}
       </div>

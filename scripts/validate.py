@@ -14,11 +14,11 @@ def main() -> None:
     parser.add_argument("mode", choices=("checks", "tests"))
     mode = parser.parse_args().mode
     # Hooks must never use a developer's database, storage credentials, or API
-    # keys. The optional AI plugin must also start without provider credentials.
+    # keys. The copilot must also start without provider credentials.
     environment = {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith(("JOBHUNT_", "ANTHROPIC_", "BRIGHTDATA_", "DJANGO_"))
+        if not key.startswith(("JOBHUNT_", "OPENAI_", "AZURE_OPENAI_", "ANTHROPIC_", "BRIGHTDATA_", "DJANGO_"))
     }
     environment.update(
         PYTHONPATH=str(ROOT),
@@ -27,11 +27,13 @@ def main() -> None:
         JOBHUNT_AUTO_MIGRATE="0",
         JOBHUNT_DEBUG="1",
         JOBHUNT_AUTH_MODE="local",
+        COPILOT_ENABLED="1",
+        IS_SAAS_PRODUCTION="False",
     )
     commands = (
         [["check"], ["makemigrations", "--check", "--dry-run"]]
         if mode == "checks"
-        else [["test", "accounts", "tracker", "jobhunt", "rls", "--noinput"]]
+        else [["test", "accounts", "tracker", "jobhunt", "rls", "jobhunt_ai", "--noinput"]]
     )
     for arguments in commands:
         subprocess.run(

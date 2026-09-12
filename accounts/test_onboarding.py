@@ -1,6 +1,6 @@
 """The questionnaire on the web: both modes end to end, the gate, the CV, the services.
 
-The AI extension may or may not be installed where the suite runs: every
+The copilot may or may not be installed where the suite runs: every
 test pins what ``cv_analyzer()`` answers so the projected path is the same
 here and in CI.
 """
@@ -296,7 +296,7 @@ class LocalFlowTests(TestCase):
             if step.id == machine.terminal or step.id == "welcome_back":
                 continue
             with self.subTest(step=step.id):
-                # The copilot interstitial is on the path only when an extension listens.
+                # The copilot interstitial is on the path only when the copilot listens.
                 plugin = mock.patch("accounts.onboarding.services.cv_analyzer", new=lambda: object())
                 with plugin if step.id == "intro_copilot" else mock.patch.object(self, "id"):
                     page = self.client.get(url(step.slug))
@@ -535,7 +535,7 @@ class CVStepTests(TestCase):
         self.assertContains(card, "Ton CV est rangé.")
         self.assertContains(card, "CV Lionel Hubaut.docx")
         self.assertContains(card, "DOCX")
-        self.assertContains(card, "Aucune extension installée")
+        self.assertContains(card, "Copilote désactivé sur cette instance")
         self.assertNotContains(card, "Texte lisible")
         self.assertContains(card, "Remplacer ce fichier")
         with with_analyzer(None):
@@ -577,7 +577,7 @@ class CVStepTests(TestCase):
         self.assertContains(card, "Aucun texte lisible")
         self.assertContains(card, "Trop court ou illisible")
 
-    def test_an_extension_that_fails_is_reported_as_such(self):
+    def test_a_copilot_that_fails_is_reported_as_such(self):
         from accounts.onboarding.testing import docx_bytes
 
         class Broken:

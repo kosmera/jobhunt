@@ -1,0 +1,21 @@
+<form id="ai-scout-form" class="stack" style="gap:.8rem"
+      hx-post="{% url 'jobhunt_ai:scout_start' %}"
+      hx-target="this" hx-swap="outerHTML">
+  {% for error in scout_form.non_field_errors %}
+    <p class="field__error">{{ error }}</p>
+  {% endfor %}
+  {% if not has_profile %}
+    <p class="meta">Analyse d'abord un CV : la veille cible les offres selon ton profil.</p>
+  {% endif %}
+  <div class="cols cols--scout">
+    {% include "tracker/partials/field.html" with field=scout_form.keywords %}
+    {% include "tracker/partials/field.html" with field=scout_form.location %}
+    {% include "tracker/partials/field.html" with field=scout_form.radius_km %}
+  </div>
+  <div>
+    <button type="submit" class="btn btn--primary" {% if not has_profile %}disabled{% endif %}>
+      <svg aria-hidden="true"><use href="#i-radar"></use></svg>
+      Lancer la veille
+    </button>
+  </div>
+</form>

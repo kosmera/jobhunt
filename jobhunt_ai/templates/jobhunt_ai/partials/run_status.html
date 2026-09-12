@@ -1,0 +1,51 @@
+{% load jobhunt_ai_text %}
+{% if run.status == "pending" or run.status == "running" %}
+  <div class="panel t-indigo" id="run-{{ run.pk }}"
+       hx-get="{% url 'jobhunt_ai:run_status' run.pk %}?poll=1{% if panel %}&panel=1{% endif %}"
+       hx-trigger="every 2s" hx-swap="outerHTML">
+    <div class="panel__body" style="display:flex;align-items:center;gap:.7rem">
+      <svg style="width:16px;height:16px;flex:none" aria-hidden="true"><use href="#i-sparkle"></use></svg>
+      <div>
+        <span class="pill t-blue">{{ run.get_kind_display }}</span>
+        <p class="meta" style="margin-top:.35rem">
+          {% if run.status == "pending" %}
+            En attente de traitement…
+          {% else %}
+            {{ run.phase|default:"Le copilote travaille…" }}
+            {% if run.progress_total %}({{ run.progress_current }}/{{ run.progress_total }}){% endif %}
+          {% endif %}
+          La page se rafraîchira toute seule.
+        </p>
+      </div>
+    </div>
+  </div>
+{% elif run.status == "failed" %}
+  <div class="panel t-red" id="run-{{ run.pk }}">
+    <div class="panel__head"><span class="eyebrow">{{ run.get_kind_display }} — échec</span></div>
+    <div class="panel__body">
+      <p class="prose prose--tight" style="color:var(--ink-2)">{{ run.error|default:"Erreur inconnue." }}</p>
+      <a class="btn btn--sm" style="margin-top:.6rem" href="">Recharger la page</a>
+    </div>
+  </div>
+{% else %}
+  <div class="panel t-green" id="run-{{ run.pk }}">
+    <div class="panel__head"><span class="eyebrow">{{ run.get_kind_display }} — terminée</span></div>
+    <div class="panel__body">
+      <p class="meta">
+        {% if run.kind == "parse_cv" %}
+          Profil créé ({{ run.result.skill_count }} compétence{{ run.result.skill_count|pluralize_fr }}).
+          <a href="{% url 'jobhunt_ai:profile' %}">Voir le profil</a>
+        {% elif run.kind == "match" %}
+          Compatibilité estimée : {{ run.result.score }} %.
+          {% if run.application %}<a href="{{ run.application.get_absolute_url }}">Voir la candidature</a>{% endif %}
+        {% elif run.kind == "generate_cv" %}
+          CV généré et rangé avec la candidature.
+          {% if run.application %}<a href="{{ run.application.get_absolute_url }}">Voir la candidature</a>{% endif %}
+        {% elif run.kind == "scout" %}
+          {{ run.result.created }} nouvelle{{ run.result.created|pluralize_fr }} piste{{ run.result.created|pluralize_fr }}.
+          <a href="{% url 'jobhunt_ai:leads' %}">Trier les pistes</a>
+        {% endif %}
+      </p>
+    </div>
+  </div>
+{% endif %}

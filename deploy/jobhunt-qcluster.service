@@ -1,0 +1,27 @@
+# Copilot worker (manage.py qcluster) of an in-tree JobHunt checkout at
+# /srv/jobhunt, synced into its .venv with the same extras as the web process
+# (`uv sync --locked --extra postgres --extra azure --extra deploy`). Needs
+# COPILOT_ENABLED unset or 1 in /etc/jobhunt.env, and the same database,
+# SECRET_KEY and JOBHUNT_AI_* settings as the web process (docs/async-tasks.md).
+[Unit]
+Description=JobHunt AI background worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jobhunt
+Group=jobhunt
+WorkingDirectory=/srv/jobhunt
+EnvironmentFile=/etc/jobhunt.env
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/srv/jobhunt/.venv/bin/python manage.py check
+ExecStart=/srv/jobhunt/.venv/bin/python manage.py qcluster
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=5700
+
+[Install]
+WantedBy=multi-user.target

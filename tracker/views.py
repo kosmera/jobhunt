@@ -504,8 +504,8 @@ def _known_identity(request) -> dict[str, str]:
 def add_document(request, pk: int | None = None):
     """Attach a file to an application, or drop one in the shared library.
 
-    A CV also goes to the AI layer, anonymised, when an extension provides
-    one (``cv_analyzer()``); the file itself never does.
+    A CV also goes to the AI layer, anonymised, when the copilot listens
+    (``cv_analyzer()``); the file itself never does.
     """
     application = _application(request, pk) if pk else None
     form = DocumentForm()

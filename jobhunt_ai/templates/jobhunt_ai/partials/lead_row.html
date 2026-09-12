@@ -1,0 +1,66 @@
+<article class="panel" id="lead-{{ lead.pk }}">
+  <div class="panel__body" style="display:flex;gap:1rem;align-items:flex-start">
+    <div style="flex:none;text-align:center;min-width:3.2rem">
+      {% if lead.score is not None %}
+        <span class="pill {% if lead.score_band == 'high' %}t-green{% elif lead.score_band == 'mid' %}t-amber{% else %}t-red{% endif %}">{{ lead.score }} %</span>
+        <div class="meta" style="margin-top:.25rem">pré-tri</div>
+      {% else %}
+        <span class="pill">—</span>
+      {% endif %}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap">
+        <strong style="font-size:.9rem">{{ lead.company_name }}</strong>
+        <span class="meta">{{ lead.title }}</span>
+        {% if lead.status == "imported" %}<span class="pill t-indigo">importée</span>{% endif %}
+        {% if lead.status == "dismissed" %}<span class="pill">écartée</span>{% endif %}
+      </div>
+      <div class="meta" style="margin-top:.3rem">
+        {% if lead.location %}{{ lead.location }}<span class="meta__sep">·</span>{% endif %}
+        {% if lead.source_name %}{{ lead.source_name }}<span class="meta__sep">·</span>{% endif %}
+        repérée le {{ lead.created_at|date:"d/m/Y" }}
+      </div>
+      {% if lead.score_reason %}
+        <p class="meta" style="margin-top:.35rem;color:var(--ink-2)">{{ lead.score_reason }}</p>
+      {% endif %}
+      {# Ce que l'extrait ne permettait pas de trancher, dit franchement. #}
+      {% if lead.score_blockers or lead.score_confidence %}
+        <div class="btn-row" style="flex-wrap:wrap;gap:.3rem;margin-top:.35rem;align-items:center">
+          {% for blocker in lead.score_blockers %}<span class="chip is-on t-red">{{ blocker }}</span>{% endfor %}
+          {% if lead.score_confidence %}<span class="meta">fiabilité {{ lead.score_confidence }}</span>{% endif %}
+        </div>
+      {% endif %}
+      {% if lead.description %}
+        <details class="collapse" style="margin-top:.4rem">
+          <summary>Description</summary>
+          <p class="prose prose--tight" style="margin-top:.4rem">{{ lead.description }}</p>
+        </details>
+      {% endif %}
+    </div>
+    <div class="btn-row" style="flex:none">
+      {% if lead.url %}
+        <a class="icon-btn" href="{{ lead.url }}" target="_blank" rel="noopener" aria-label="Voir l'annonce">
+          <svg aria-hidden="true"><use href="#i-external"></use></svg>
+        </a>
+      {% endif %}
+      {% if lead.status == "imported" and lead.application %}
+        <a class="btn btn--sm" href="{{ lead.application.get_absolute_url }}">Ouvrir</a>
+      {% elif lead.status == "new" %}
+        <button type="button" class="btn btn--sm btn--primary"
+                hx-post="{% url 'jobhunt_ai:lead_import' lead.pk %}"
+                hx-target="#lead-{{ lead.pk }}" hx-swap="outerHTML">
+          <svg aria-hidden="true"><use href="#i-plus"></use></svg> Suivre
+        </button>
+        <button type="button" class="btn btn--sm btn--ghost"
+                hx-post="{% url 'jobhunt_ai:lead_dismiss' lead.pk %}"
+                hx-target="#lead-{{ lead.pk }}" hx-swap="outerHTML">Écarter</button>
+      {% elif lead.status == "dismissed" %}
+        <button type="button" class="btn btn--sm"
+                hx-post="{% url 'jobhunt_ai:lead_restore' lead.pk %}"
+                hx-target="#lead-{{ lead.pk }}" hx-swap="outerHTML">
+          <svg aria-hidden="true"><use href="#i-undo"></use></svg> Reprendre
+        </button>
+      {% endif %}
+    </div>
+  </div>
+</article>

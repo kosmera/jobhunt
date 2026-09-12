@@ -8,7 +8,17 @@ dependencies = [
     "django>=6.1,<7",
     "openpyxl>=3.1.5",   # lecture du classeur d'origine (commande import_legacy)
     "pypdf>=5",          # texte des CV PDF (port de stockage, extract_and_anonymize_text)
-    "python-docx>=1.1",  # texte des CV DOCX
+    "python-docx>=1.1",  # texte des CV DOCX, rendu des CV ATS générés
+    # Copilote IA (app jobhunt_ai, activée par COPILOT_ENABLED) : file durable,
+    # SDK Anthropic (sorties structurées), orchestration des agents, veille.
+    "django-q2>=1.11.1,<2",             # file durable, worker séparé du serveur HTTP
+    "anthropic>=1.0,<2",                # SDK officiel : messages.parse + sorties structurées
+    "langgraph>=1.0,<2",                # orchestration des agents (graphes d'états)
+    "pydantic>=2.7",
+    "openai>=2,<3",                     # OpenAI direct et Azure OpenAI : sorties structurées
+    "httpx>=0.27",                      # récupération directe des pages (repli de la veille)
+    "beautifulsoup4>=4.12",
+    "langchain-mcp-adapters>=0.3,<0.4", # veille : serveur MCP Bright Data
 ]
 
 [project.optional-dependencies]
@@ -44,7 +54,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 # Disposition « à plat » : sans filtre, setuptools prendrait media/, static/,
 # Offres/ et CV_base/ pour des paquets et refuserait de construire.
-include = ["jobhunt*", "accounts*", "tracker*", "rls*"]
+include = ["jobhunt*", "accounts*", "tracker*", "rls*", "jobhunt_ai*"]
 
 [tool.uv]
 # Application Django, pas une bibliothèque : « uv sync » n'installe pas le
@@ -57,7 +67,9 @@ package = false
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
-include = ["jobhunt", "accounts", "tracker", "rls", "scripts", "manage.py"]
+include = ["jobhunt", "accounts", "tracker", "rls", "jobhunt_ai", "scripts", "manage.py"]
+# Les états LangGraph du copilote sont des TypedDict total=False lus par clé.
+reportTypedDictNotRequiredAccess = "none"
 
 [tool.ruff]
 target-version = "py312"

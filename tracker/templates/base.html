@@ -19,7 +19,7 @@
 <body>
   <a class="skip-link" href="#main-content">Aller au contenu</a>
   {% include "tracker/partials/icons.html" %}
-  {% for icon_template in plugin_icon_templates %}{% include icon_template %}{% endfor %}
+  {% if copilot_enabled %}{% include "jobhunt_ai/partials/icons.html" %}{% endif %}
 
   {% block body %}
   <div class="shell">

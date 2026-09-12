@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Pistes d'offres — JobHunt{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <span class="eyebrow">copilote · veille</span>
+    <h1 class="page-title">Pistes d'offres</h1>
+    <p class="page-lede">
+      La veille lit les sites d'offres configurés, écarte ce que tu suis déjà et pré-trie le reste
+      contre tes qualifications. À toi de trier : suivre ou écarter. Le pré-tri ne juge que sur
+      un extrait d'annonce, d'où la fiabilité affichée — la note définitive vient de l'évaluation,
+      sur la fiche de la candidature.
+    </p>
+  </div>
+
+  <div class="stack">
+    <section class="panel t-indigo">
+      <div class="panel__head"><span class="eyebrow">Lancer une veille</span></div>
+      <div class="panel__body">
+        {% if active_run %}
+          {% include "jobhunt_ai/partials/run_status.html" with run=active_run %}
+        {% else %}
+          {% include "jobhunt_ai/partials/scout_form.html" %}
+        {% endif %}
+      </div>
+    </section>
+
+    <div class="btn-row">
+      <a class="chip{% if scope == 'new' %} is-on t-amber{% endif %}" href="{% url 'jobhunt_ai:leads' %}?etat=new">à trier · {{ counts.new }}</a>
+      <a class="chip{% if scope == 'imported' %} is-on t-green{% endif %}" href="{% url 'jobhunt_ai:leads' %}?etat=imported">importées · {{ counts.imported }}</a>
+      <a class="chip{% if scope == 'dismissed' %} is-on t-red{% endif %}" href="{% url 'jobhunt_ai:leads' %}?etat=dismissed">écartées · {{ counts.dismissed }}</a>
+    </div>
+
+    <div class="stack" id="ai-leads">
+      {% for lead in leads %}
+        {% include "jobhunt_ai/partials/lead_row.html" %}
+      {% empty %}
+        <div class="empty">
+          <p class="empty__text">
+            {% if scope == "new" %}Aucune piste à trier. Lance une veille ci-dessus.
+            {% elif scope == "imported" %}Aucune piste importée pour l'instant.
+            {% else %}Aucune piste écartée.{% endif %}
+          </p>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}

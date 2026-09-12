@@ -1,0 +1,14 @@
+# Expires abandoned copilot runs; run by jobhunt-ai-reconcile.timer every
+# minute against the same checkout and /etc/jobhunt.env as the worker
+# (docs/async-tasks.md, « Failures, timeouts and recovery »).
+[Unit]
+Description=Expire interrupted JobHunt AI jobs
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=jobhunt
+Group=jobhunt
+WorkingDirectory=/srv/jobhunt
+EnvironmentFile=/etc/jobhunt.env
+ExecStart=/srv/jobhunt/.venv/bin/python manage.py reconcile_ai_runs

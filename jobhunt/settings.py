@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 
 from jobhunt.database import auto_migrate_default, conn_max_age_from_env, database_config
-from jobhunt.plugins import plugin_apps
 from jobhunt.storage import PROVIDER_ENV, storage_config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,6 +19,8 @@ SECRET_KEY = os.environ.get(
     "JOBHUNT_SECRET_KEY", "django-insecure-local-only-jobhunt-tracker-key"
 )
 DEBUG = os.environ.get("JOBHUNT_DEBUG", "1") == "1"
+# Explicit commercial deployment switch, independent of DEBUG and AUTH_MODE.
+IS_SAAS_PRODUCTION = os.environ.get("IS_SAAS_PRODUCTION", "false").lower() in {"1", "true"}
 
 
 def _env_list(name: str, default: str) -> list[str]:
@@ -74,35 +75,31 @@ INSTALLED_APPS = [
     "django.contrib.humanize",
 ]
 
-# Extensions hors dépôt (ex. le copilote IA) : installées comme paquets et
-# découvertes par point d'entrée, jamais listées en dur ici.
-INSTALLED_APPS += plugin_apps()
+# --- Copilote IA ------------------------------------------------------------
+# The copilot (``jobhunt_ai``) ships with the core and is on by default. An
+# instance that does not want it — no provider key, no worker — turns it off
+# here: its app, its URLs (``copilote/``) and its chrome disappear together,
+# and ``tracker.adapters.cv_analyzer()`` returns nothing. Python code asks
+# ``apps.is_installed("jobhunt_ai")``; templates get ``copilot_enabled``.
+COPILOT_ENABLED = os.environ.get("COPILOT_ENABLED", "1").strip().lower() in {"1", "true"}
+if COPILOT_ENABLED:
+    INSTALLED_APPS += ["django_q", "jobhunt_ai"]
 
-# The host owns every mapping to its models, events, and infrastructure.
-# Secrets stay in host configuration; the reusable package reads only
-# namespaced Django settings. Legacy environment names remain accepted here.
-JOBHUNT_AI_APPLICATION_MODEL = "tracker.Application"
-JOBHUNT_AI_DOCUMENT_MODEL = "tracker.Document"
-JOBHUNT_AI_HOST_BACKEND = "jobhunt.ai_integration.JobHuntBackend"
+# The copilot reads only namespaced ``JOBHUNT_AI_*`` settings, filled here from
+# the environment (``jobhunt_ai/settings.py`` holds the defaults). Legacy
+# environment names remain accepted.
 # Operator-owned provider credential, unrelated to a user's premium access.
-# Optional at startup; only AI execution requires a configured provider.
-JOBHUNT_AI_API_KEY = os.environ.get(
-    "JOBHUNT_AI_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")
-)
-JOBHUNT_AI_CV_INGESTED_SIGNAL = "tracker.events.cv_ingested"
-JOBHUNT_AI_APPLICATION_OWNER_CHANGED_SIGNAL = "tracker.events.application_owner_changed"
-JOBHUNT_AI_BASE_TEMPLATE = "base.html"
-JOBHUNT_AI_MIGRATION_DEPENDENCIES = [
-    ("tracker", "0004_owner_required"),
-    ("accounts", "0001_initial"),
-]
-JOBHUNT_AI_ORPHAN_OWNER_RESOLVER = "jobhunt.ai_integration.attach_legacy_owners"
-JOBHUNT_AI_RLS_OPERATION = "rls.operations.EnableRowLevelSecurity"
-JOBHUNT_AI_RLS_MIGRATION_DEPENDENCIES = [("rls", "0001_initial")]
+# Optional at startup; only AI execution requires a configured provider. An
+# empty value counts as unset, so a blank line in ``.env`` does not hide an
+# exported ``ANTHROPIC_API_KEY``.
+JOBHUNT_AI_API_KEY = os.environ.get("JOBHUNT_AI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
+JOBHUNT_AI_OPENAI_API_KEY = os.environ.get("JOBHUNT_AI_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
 
-# Preserve existing deployment knobs, converting environment strings here.
+# Deployment knobs, converted from environment strings to their setting type.
 for _ai_name in (
-    "MODEL", "LOCATION", "BRIGHTDATA_MCP_URL",
+    "MODEL", "LOCATION", "BRIGHTDATA_MCP_URL", "AZURE_ENDPOINT", "AZURE_API_KEY",
+    "AZURE_API_VERSION", "AZURE_SIMPLE_DEPLOYMENT", "AZURE_COMPLEX_DEPLOYMENT",
+    "UPGRADE_URL", "PROVIDER", "OPENAI_SIMPLE_MODEL", "OPENAI_COMPLEX_MODEL",
 ):
     if f"JOBHUNT_AI_{_ai_name}" in os.environ:
         globals()[f"JOBHUNT_AI_{_ai_name}"] = os.environ[f"JOBHUNT_AI_{_ai_name}"]
@@ -110,6 +107,10 @@ for _ai_name in (
     "MAX_TOKENS", "QUEUE_TTL", "WORKER_GRACE", "LLM_MAX_RETRIES",
     "SCRAPE_TIMEOUT", "ANALYZE_TIMEOUT", "RADIUS_KM", "SCOUT_MAX_QUERIES",
     "SCOUT_MAX_PAGES", "SCOUT_PAGE_CHARS",
+    "AZURE_MAX_INPUT_CHARS", "AZURE_MAX_OUTPUT_TOKENS",
+    "OPENAI_MAX_INPUT_CHARS", "OPENAI_MAX_OUTPUT_TOKENS",
+    "FREE_MONTHLY_REQUESTS", "FREE_REQUESTS_PER_MINUTE",
+    "PAID_MONTHLY_REQUESTS", "PAID_REQUESTS_PER_MINUTE",
 ):
     if f"JOBHUNT_AI_{_ai_name}" in os.environ:
         globals()[f"JOBHUNT_AI_{_ai_name}"] = int(os.environ[f"JOBHUNT_AI_{_ai_name}"])
@@ -127,8 +128,9 @@ if os.environ.get("JOBHUNT_AI_SCOUT_SOURCES"):
 
     JOBHUNT_AI_SCOUT_SOURCES = json.loads(os.environ["JOBHUNT_AI_SCOUT_SOURCES"])
 
-# Durable tasks: the extension declares django_q as a required app. Keeping
-# the ORM broker on the same database makes job + message creation atomic.
+# Durable tasks: the copilot runs its agents in a django_q cluster (``manage.py
+# qcluster``). Keeping the ORM broker on the same database makes job + message
+# creation atomic.
 _q_workers = int(os.environ.get("JOBHUNT_Q_WORKERS", "2"))
 _q_timeout = int(os.environ.get("JOBHUNT_Q_TIMEOUT", "1800"))
 Q_CLUSTER = {

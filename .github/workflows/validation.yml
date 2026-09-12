@@ -38,7 +38,7 @@ jobs:
         run: uvx --from pre-commit==4.6.2 pre-commit run --all-files
 
   tests:
-    name: Tests (${{ matrix.database }}, without AI)
+    name: Tests (${{ matrix.database }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -61,6 +61,8 @@ jobs:
           --health-retries 5
     env:
       JOBHUNT_DATABASE_URL: ${{ matrix.database == 'postgresql' && 'postgresql://postgres:postgres@localhost:5432/jobhunt' || 'sqlite:///:memory:' }}
+      COPILOT_ENABLED: "1"
+      IS_SAAS_PRODUCTION: "False"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -70,10 +72,33 @@ jobs:
           version: "0.9.15"
           python-version: "3.12"
           enable-cache: true
-      - name: Install core dependencies
+      - name: Install dependencies
         run: uv sync --locked --all-extras
-      - name: Verify AI is not installed
-        run: uv run --no-sync python -c "from importlib.util import find_spec; assert find_spec('jobhunt_ai') is None"
+      - name: Django system checks
+        run: uv run --no-sync python manage.py check
+      - name: Check for missing migrations
+        run: uv run --no-sync python manage.py makemigrations --check --dry-run
+      - name: Run tests
+        run: uv run --no-sync python manage.py test accounts tracker jobhunt rls jobhunt_ai --noinput
+
+  core-only:
+    name: Core without the copilot (sqlite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JOBHUNT_DATABASE_URL: "sqlite:///:memory:"
+      COPILOT_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.15"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked --all-extras
       - name: Django system checks
         run: uv run --no-sync python manage.py check
       - name: Check for missing migrations

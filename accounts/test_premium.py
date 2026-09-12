@@ -49,6 +49,23 @@ class PremiumEntitlementTests(TestCase):
         self.assertFalse(has_premium(user))
         self.assertFalse(Profile.objects.filter(user=user).exists())
 
+    def test_is_premium_property_follows_premium_until(self):
+        user = make_user()
+        profile = Profile.objects.get(user=user)
+        now = timezone.now()
+        with patch("accounts.models.timezone.now", return_value=now):
+            for until, expected in (
+                (None, False),
+                (now - timedelta(seconds=1), False),
+                (now, False),
+                (now + timedelta(days=30), True),
+            ):
+                with self.subTest(until=until):
+                    profile.premium_until = until
+                    self.assertEqual(profile.is_premium, expected)
+        # A property, not a column: nothing to migrate, nothing the form can set.
+        self.assertNotIn("is_premium", [field.name for field in Profile._meta.get_fields()])
+
     def test_profile_form_cannot_grant_premium(self):
         user = make_user()
         form = ProfileForm(

@@ -1,0 +1,20 @@
+<form id="ai-upload-form" class="stack" style="gap:.8rem"
+      hx-post="{% url 'jobhunt_ai:parse_cv' %}"
+      hx-encoding="multipart/form-data"
+      hx-target="this" hx-swap="outerHTML">
+  {% for error in upload_form.non_field_errors %}
+    <p class="field__error">{{ error }}</p>
+  {% endfor %}
+  {% include "tracker/partials/field.html" with field=upload_form.file %}
+  {% include "tracker/partials/field.html" with field=upload_form.document %}
+  {% include "tracker/partials/field.html" with field=upload_form.label %}
+  <label style="display:flex;align-items:center;gap:.5rem;font-size:.85rem">
+    {{ upload_form.make_primary }} {{ upload_form.make_primary.label }}
+  </label>
+  <div>
+    <button type="submit" class="btn btn--primary">
+      <svg aria-hidden="true"><use href="#i-doc-scan"></use></svg>
+      Analyser ce CV
+    </button>
+  </div>
+</form>

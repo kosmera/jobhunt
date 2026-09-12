@@ -26,6 +26,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 # Cycle-free: ``tracker.models`` imports nothing from ``accounts`` at module
 # level (the one ``accounts.services`` import sits inside a method).
@@ -68,7 +69,7 @@ class Profile(models.Model):
         "téléphone",
         max_length=60,
         blank=True,
-        help_text="Facultatif. Sert d'en-tête aux CV qu'une extension rédige, "
+        help_text="Facultatif. Sert d'en-tête aux CV que le copilote rédige, "
         "et l'anonymisation le masque partout ailleurs.",
     )
     onboarded_at = models.DateTimeField("profil complété le", null=True, blank=True)
@@ -89,6 +90,17 @@ class Profile(models.Model):
     @property
     def is_onboarded(self) -> bool:
         return self.onboarded_at is not None
+
+    @property
+    def is_premium(self) -> bool:
+        """Whether the paid period is running, as read on this instance.
+
+        Mirrors ``premium_until`` (the single source of truth, admin-managed)
+        for templates and code that already hold the profile. Access
+        decisions go through ``accounts.services.has_premium(user)``, which
+        reads the database afresh and also requires an active account.
+        """
+        return self.premium_until is not None and self.premium_until > timezone.now()
 
     @property
     def initials(self) -> str:
@@ -167,7 +179,7 @@ class Challenge(models.TextChoices):
 class HelpWanted(models.TextChoices):
     TRACK = "track", "Suivre mes candidatures et mes relances"
     DOCUMENTS = "documents", "Garder mes CV et mes lettres au même endroit"
-    FIT = "fit", "Savoir si une offre me correspond avant de postuler — extension IA, en option"
+    FIT = "fit", "Savoir si une offre me correspond avant de postuler — copilote IA (Premium)"
     GAPS = "gaps", "Voir les compétences qu'on me demande le plus"
 
 

@@ -26,8 +26,15 @@ BOOKKEEPING_TABLES = (
     "auth_group_permissions",
 )
 
+#: The Django-Q2 queue behind the copilot: run identifiers only, never a
+#: person's data. Listed by name rather than through ``rls.exempt`` alone,
+#: because the tables outlive ``COPILOT_ENABLED``: an instance that turns the
+#: copilot off keeps them, readable by the application role, with no model
+#: left to carry the exemption — the guard must still let them through.
+QUEUE_TABLES = ("django_q_ormq", "django_q_schedule", "django_q_task")
+
 #: Tables that legitimately carry no policy: none holds a person's data.
-UNPROTECTED_ALLOWED = BOOKKEEPING_TABLES + ("django_session",)
+UNPROTECTED_ALLOWED = BOOKKEEPING_TABLES + ("django_session",) + QUEUE_TABLES
 
 #: The account bound to the transaction, as PostgreSQL sees it. ``NULL`` when
 #: nothing was ever set on the session, ``''`` once a previous transaction's

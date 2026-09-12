@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% load jobhunt_ai_text jobhunt_ai_extras %}
+
+{% block title %}Copilote IA — JobHunt{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <span class="eyebrow">Un coup de pouce pour la suite</span>
+    <h1 class="page-title">Copilote IA</h1>
+    <p class="page-lede">
+      Trois agents à ta main : l'analyse de CV construit ton profil, l'évaluation score chaque
+      offre et pointe les lacunes, la veille ramène des pistes autour de chez toi.
+    </p>
+  </div>
+
+  <div class="stack">
+    {% if active_run %}
+      {% include "jobhunt_ai/partials/run_status.html" with run=active_run %}
+    {% endif %}
+
+    <div class="cols cols--3">
+      <section class="panel t-indigo">
+        <div class="panel__head"><span class="eyebrow">Profil</span></div>
+        <div class="panel__body">
+          {% if profile %}
+            <p style="font-weight:600;font-size:.9rem;margin-bottom:.25rem">{{ profile.full_name|default:profile.label }}</p>
+            <p class="meta">{{ profile.headline|default:"—" }}</p>
+            <p class="meta" style="margin-top:.4rem">
+              {{ profile.skills|length }} compétence{{ profile.skills|length|pluralize_fr }}
+              <span class="meta__sep">·</span>
+              {{ profiles_count }} profil{{ profiles_count|pluralize_fr }}
+            </p>
+          {% else %}
+            <p class="meta">Aucun profil : commence par analyser ton CV.</p>
+          {% endif %}
+          <a class="btn btn--sm" style="margin-top:.8rem" href="{% url 'jobhunt_ai:profile' %}">
+            <svg aria-hidden="true"><use href="#i-doc-scan"></use></svg>
+            {% if profile %}Gérer le profil{% else %}Analyser un CV{% endif %}
+          </a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head"><span class="eyebrow">Veille</span></div>
+        <div class="panel__body">
+          <p style="font-weight:600;font-size:1.4rem;margin-bottom:.2rem">{{ new_leads }}</p>
+          <p class="meta">piste{{ new_leads|pluralize_fr }} à trier</p>
+          <a class="btn btn--sm" style="margin-top:.8rem" href="{% url 'jobhunt_ai:leads' %}">
+            <svg aria-hidden="true"><use href="#i-radar"></use></svg> Ouvrir les pistes
+          </a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head"><span class="eyebrow">Production</span></div>
+        <div class="panel__body">
+          <p class="meta">{{ reports_count }} évaluation{{ reports_count|pluralize_fr }} de compatibilité</p>
+          <p class="meta" style="margin-top:.3rem">{{ generated_count }} CV généré{{ generated_count|pluralize_fr }}</p>
+          <p class="meta" style="margin-top:.8rem;color:var(--ink-3)">
+            L'évaluation et la génération se lancent depuis chaque fiche candidature.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel__head"><span class="eyebrow">Dernières exécutions</span></div>
+      <div class="panel__body">
+        {% for run in runs %}
+          <div class="activity-row">
+            <span class="pill {% if run.status == 'succeeded' %}t-green{% elif run.status == 'failed' %}t-red{% elif run.status == 'running' %}t-blue{% else %}t-amber{% endif %}">{{ run.get_status_display }}</span>
+            <span style="font-size:.85rem">{{ run.get_kind_display }}</span>
+            {% if run.application %}
+              <a class="meta" href="{{ run.application.get_absolute_url }}">{{ run.application.company.name }}</a>
+            {% endif %}
+            <span class="meta" style="margin-left:auto">
+              {{ run.created_at|date:"d/m H:i" }}
+              {% if run.input_tokens %}<span class="meta__sep">·</span>{{ run.input_tokens }} + {{ run.output_tokens }} jetons{% endif %}
+            </span>
+          </div>
+        {% empty %}
+          <div class="empty empty--sm"><p class="empty__text">Aucune exécution pour l'instant.</p></div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+{% endblock %}

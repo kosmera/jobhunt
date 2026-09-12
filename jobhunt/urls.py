@@ -1,8 +1,8 @@
+from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
 from jobhunt.landing import landing
-from jobhunt.plugins import get_plugins
 
 urlpatterns = [
     path("accueil/", landing, name="landing"),
@@ -11,11 +11,10 @@ urlpatterns = [
     path("", include("tracker.urls")),
 ]
 
-# Chaque extension est montée sous son propre préfixe.
-for plugin in get_plugins():
-    urlpatterns.append(
-        path(plugin.url_prefix, include(plugin.urls, namespace=plugin.name))
-    )
+# Le copilote IA, sous son propre préfixe (l'espace de noms ``jobhunt_ai``
+# vient de son module d'URLs). Absent quand COPILOT_ENABLED est à 0.
+if settings.COPILOT_ENABLED:
+    urlpatterns.append(path("copilote/", include("jobhunt_ai.urls")))
 
 # Les fichiers téléversés ne sont jamais servis tels quels, même en DEBUG :
 # un document appartient à un profil et se télécharge par sa vue

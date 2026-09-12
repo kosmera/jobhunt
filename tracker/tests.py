@@ -100,12 +100,26 @@ def make_docx(*paragraphs: str, table: tuple[str, ...] = ()) -> bytes:
     return buffer.getvalue()
 
 
-def make_pdf() -> bytes:
-    """A one-page PDF without a text layer (a scan, as far as extraction goes)."""
+def make_pdf(content: bytes = b"") -> bytes:
+    """One PDF page, optionally with explicit text drawing operations."""
     from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
     writer = PdfWriter()
-    writer.add_blank_page(width=200, height=200)
+    page = writer.add_blank_page(width=300, height=200)
+    if content:
+        page[NameObject("/Resources")] = DictionaryObject({
+            NameObject("/Font"): DictionaryObject({
+                NameObject("/F1"): DictionaryObject({
+                    NameObject("/Type"): NameObject("/Font"),
+                    NameObject("/Subtype"): NameObject("/Type1"),
+                    NameObject("/BaseFont"): NameObject("/Helvetica"),
+                }),
+            }),
+        })
+        stream = DecodedStreamObject()
+        stream.set_data(content)
+        page[NameObject("/Contents")] = writer._add_object(stream)
     buffer = io.BytesIO()
     writer.write(buffer)
     return buffer.getvalue()
@@ -2602,6 +2616,73 @@ class DocumentTextTests(SimpleTestCase):
             document_text.extract_text("cv.docx", data), "Lionel Dupont\nIngénieur DevOps\nPython · Django"
         )
 
+    def test_docx_repeated_employers_and_locations_keep_each_experience_in_order(self):
+        paragraphs = (
+            "Ingénieur logiciel", "Example Employer", "Belgique", "2022–2026",
+            "Ingénieur R&D", "Example Employer", "Belgique", "2018–2022",
+            "Testeur QA", "Example Employer", "Belgique", "2015–2018",
+        )
+        self.assertEqual(
+            document_text.extract_text("cv.docx", self.docx(*paragraphs)),
+            "\n".join(paragraphs),
+        )
+
+    def test_docx_shared_headers_and_footers_do_not_deduplicate_body_text(self):
+        import docx
+        from docx.enum.section import WD_SECTION_START
+
+        document = docx.Document()
+        document.sections[0].header.paragraphs[0].text = "Example Employer"
+        document.sections[0].footer.paragraphs[0].text = "Belgique"
+        for paragraph in ("Ingénieur logiciel", "Example Employer", "Belgique"):
+            document.add_paragraph(paragraph)
+        document.add_section(WD_SECTION_START.NEW_PAGE)
+        for paragraph in ("Testeur QA", "Example Employer", "Belgique"):
+            document.add_paragraph(paragraph)
+        buffer = io.BytesIO()
+        document.save(buffer)
+
+        self.assertEqual(
+            document_text.extract_text("cv.docx", buffer.getvalue()),
+            "Example Employer\nBelgique\n"
+            "Ingénieur logiciel\nExample Employer\nBelgique\n"
+            "Testeur QA\nExample Employer\nBelgique",
+        )
+
+    def test_docx_text_box_paragraphs_are_read_once_without_the_fallback_copy(self):
+        import docx
+        from docx.oxml import parse_xml
+
+        document = docx.Document()
+        outer = document.add_paragraph("Paragraphe extérieur")
+        outer._p.append(parse_xml("""
+            <mc:AlternateContent
+                xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+              <mc:Choice Requires="wps">
+                <w:txbxContent>
+                  <w:p><w:r><w:t>Ingénieur </w:t></w:r><w:r><w:t>logiciel</w:t></w:r></w:p>
+                  <w:p><w:r><w:t>Example Employer</w:t></w:r></w:p>
+                </w:txbxContent>
+              </mc:Choice>
+              <mc:Fallback>
+                <w:txbxContent>
+                  <w:p><w:r><w:t>Ingénieur logiciel</w:t></w:r></w:p>
+                  <w:p><w:r><w:t>Example Employer</w:t></w:r></w:p>
+                </w:txbxContent>
+              </mc:Fallback>
+            </mc:AlternateContent>
+        """))
+        document.add_paragraph("Example Employer")
+        buffer = io.BytesIO()
+        document.save(buffer)
+
+        self.assertEqual(
+            document_text.extract_text("cv.docx", buffer.getvalue()),
+            "Paragraphe extérieur\nIngénieur logiciel\nExample Employer\nExample Employer",
+        )
+
     def test_docx_headers_footers_and_nested_tables_are_read(self):
         """Word and Canva templates park the contact block in a header and a
         column in a text box; missing them makes a real CV look like a scan."""
@@ -2632,6 +2713,63 @@ class DocumentTextTests(SimpleTestCase):
 
     def test_a_pdf_without_a_text_layer_is_empty_not_an_error(self):
         self.assertEqual(document_text.extract_text("cv.pdf", self.pdf()), "")
+
+    def test_pdf_skill_lines_follow_visual_positions_not_drawing_order(self):
+        # Exporters can draw every label first, then the values. The visible
+        # lines still associate each category with its own skills.
+        data = self.pdf(
+            b"BT /F1 10 Tf 1 0 0 1 20 170 Tm (Languages:) Tj ET\n"
+            b"BT /F1 10 Tf 1 0 0 1 20 150 Tm (Frameworks:) Tj ET\n"
+            b"BT /F1 10 Tf 1 0 0 1 100 170 Tm (Python, Go) Tj ET\n"
+            b"BT /F1 10 Tf 1 0 0 1 100 150 Tm (React, Flutter) Tj ET\n"
+        )
+        lines = document_text.extract_text("cv.pdf", data).splitlines()
+        self.assertEqual(
+            [" ".join(line.split()) for line in lines],
+            ["Languages: Python, Go", "Frameworks: React, Flutter"],
+        )
+
+    def test_pdf_rotated_skill_text_is_not_discarded(self):
+        data = self.pdf(
+            b"BT /F1 10 Tf 1 0 0 1 20 170 Tm (Python) Tj ET\n"
+            b"BT /F1 10 Tf 0 1 -1 0 200 20 Tm (Kotlin) Tj ET\n"
+        )
+        text = document_text.extract_text("cv.pdf", data)
+        self.assertIn("Python", text)
+        self.assertIn("Kotlin", text)
+
+    def test_pdf_form_text_is_preserved_alongside_regular_page_text(self):
+        from pypdf import PdfWriter
+        from pypdf.generic import (
+            ArrayObject, DecodedStreamObject, DictionaryObject, NameObject, NumberObject,
+        )
+
+        writer = PdfWriter(clone_from=io.BytesIO(self.pdf(
+            b"BT /F1 10 Tf 20 170 Td (Curriculum vitae) Tj ET\n/CV Do\n"
+        )))
+        page = writer.pages[0]
+        resources = page["/Resources"]
+        assert isinstance(resources, DictionaryObject)
+        form = DecodedStreamObject()
+        form.update({
+            NameObject("/Type"): NameObject("/XObject"),
+            NameObject("/Subtype"): NameObject("/Form"),
+            NameObject("/BBox"): ArrayObject([NumberObject(n) for n in (0, 0, 300, 200)]),
+            NameObject("/Resources"): resources,
+        })
+        form.set_data(
+            b"BT /F1 10 Tf 20 150 Td (Engineer at Example Company 2020-2025) Tj "
+            b"0 -20 Td (Skills: Python Linux Django) Tj ET"
+        )
+        resources[NameObject("/XObject")] = DictionaryObject({
+            NameObject("/CV"): writer._add_object(form),
+        })
+        buffer = io.BytesIO()
+        writer.write(buffer)
+
+        text = document_text.extract_text("cv.pdf", buffer.getvalue())
+        for expected in ("Curriculum vitae", "Engineer at Example Company 2020-2025", "Skills: Python Linux Django"):
+            self.assertIn(expected, text)
 
     def test_unsupported_and_corrupt_files(self):
         for name, data in (("cv.odt", b"x"), ("cv", b"x"), ("cv.doc", b"x"),

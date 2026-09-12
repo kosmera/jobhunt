@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from accounts.services import owned_or_404
-from jobhunt_ai.access import premium_required
+from jobhunt_ai.access import premium_required, run_access_required
 from jobhunt_ai.forms import CVUploadForm, ScoutForm
 from jobhunt_ai.hooks import CopilotCVAnalyzer
 from jobhunt_ai.models import (
@@ -112,7 +112,6 @@ def copilot(request):
 
 
 @login_required
-@premium_required
 def profile_page(request):
     profiles = list(CandidateProfile.objects.filter(owner=request.user))
     profile = next(
@@ -172,7 +171,7 @@ def _has_profile(user) -> bool:
 
 
 @login_required
-@premium_required
+@run_access_required
 @require_GET
 def run_status(request, pk: int):
     runner.sweep_orphans(request.user, run_id=pk)
@@ -283,7 +282,7 @@ def api_scout_start(request):
 
 
 @login_required
-@premium_required
+@run_access_required
 @require_GET
 def api_run_status(request, pk: int):
     runner.sweep_orphans(request.user, run_id=pk)
@@ -352,7 +351,6 @@ def _upload_error(request, form: CVUploadForm, message: str) -> HttpResponse:
 
 
 @login_required
-@premium_required
 @require_POST
 def parse_cv(request):
     """Prepare anonymized intake through the storage port, then launch the run."""
@@ -521,7 +519,6 @@ def _profile_redirect() -> HttpResponse:
 
 
 @login_required
-@premium_required
 @require_POST
 def profile_set_primary(request, pk: int):
     profile = owned_or_404(CandidateProfile, request.user, pk=pk)
@@ -531,7 +528,6 @@ def profile_set_primary(request, pk: int):
 
 
 @login_required
-@premium_required
 @require_POST
 def profile_delete(request, pk: int):
     profile = owned_or_404(CandidateProfile, request.user, pk=pk)

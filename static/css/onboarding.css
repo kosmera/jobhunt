@@ -139,6 +139,7 @@
 .dropzone__badge { margin-bottom: 0.5rem; background: var(--accent-wash); color: var(--accent); white-space: normal; text-align: center; }
 .dropzone__title { font-size: 1rem; font-weight: 550; }
 .dropzone__or { font-size: 0.8rem; color: var(--ink-3); }
+.dropzone__hint { font-size: 0.8rem; line-height: 1.5; color: var(--ink-2); }
 .dropzone .btn { margin-top: 0.3rem; }
 .dropzone__file { margin-top: 0.5rem; font-size: 0.85rem; font-weight: 550; color: var(--accent); overflow-wrap: anywhere; }
 .dropzone__file:empty { display: none; }
@@ -151,6 +152,10 @@
   transition: width 0.15s var(--ease);
 }
 .upload-bar__text { margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.upload-bar.is-preparing .upload-bar__fill { width: 35%; animation: onb-upload-preparing 1.4s ease-in-out infinite alternate; }
+.upload-bar__recovery { display: inline-block; margin-left: 0.35rem; color: var(--accent); }
+.onb__note--analysis { margin: -0.8rem 0 1.25rem; }
+@keyframes onb-upload-preparing { from { transform: translateX(0); } to { transform: translateX(185%); } }
 
 .result-card {
   padding: 0.35rem 1.15rem;
@@ -166,6 +171,51 @@
 .result-card__row > svg { width: 18px; height: 18px; flex: none; margin-top: 0.15rem; color: var(--tone, var(--ink-3)); }
 .result-card__row strong { font-weight: 600; }
 .result-card__row.t-amber { margin: 0 -1.15rem; padding-inline: 1.15rem; background: var(--tone-wash); color: var(--tone); }
+
+.cv-analysis { margin-top: 1rem; padding: 1.1rem 1.15rem; border: 1px solid var(--rule); border-radius: var(--radius-lg); background: var(--card); }
+.cv-analysis__heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; }
+.cv-analysis__title { margin: 0; font-size: 1rem; font-weight: 600; color: var(--heading); }
+.cv-analysis__free { background: var(--accent-wash); color: var(--accent); white-space: normal; }
+.cv-analysis__status { display: flex; align-items: flex-start; gap: 0.5rem; margin: 1rem 0; font-size: 0.875rem; line-height: 1.6; }
+.cv-analysis__status > svg { width: 18px; height: 18px; flex: none; margin-top: 0.15rem; color: var(--tone, var(--accent)); }
+.cv-analysis__spinner { width: 16px; height: 16px; flex: none; margin-top: 0.2rem; border: 2px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: onb-analysis-spin 0.9s linear infinite; }
+.cv-analysis__steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem 0.8rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.cv-analysis__steps li { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; line-height: 1.5; color: var(--ink-3); }
+.cv-analysis__steps li::before { content: ""; width: 7px; height: 7px; margin: 0 3px; border: 1px solid currentColor; border-radius: 50%; flex: none; }
+.cv-analysis__steps .is-complete::before { display: none; }
+.cv-analysis__steps svg { width: 14px; height: 14px; flex: none; }
+.cv-analysis__steps .is-complete { color: var(--ink-2); }
+.cv-analysis__steps [aria-current="step"] { color: var(--accent); font-weight: 600; }
+.cv-analysis__steps [aria-current="step"]::before { background: currentColor; }
+.cv-analysis__review { margin: 0 0 1rem; padding: 0.9rem 1rem; border: 1px solid var(--rule); border-left: 3px solid var(--accent); border-radius: var(--radius); background: var(--feature-bg); color: var(--ink); font-size: 0.875rem; line-height: 1.6; overflow-wrap: anywhere; }
+.cv-analysis__review.t-amber { border-left-color: var(--tone); background: var(--tone-wash); }
+.cv-analysis__review h3 { margin: 0 0 0.4rem; font-size: 0.95rem; font-weight: 600; }
+.cv-analysis__review p { margin: 0.5rem 0 0; }
+.cv-analysis__gaps { margin: 0.6rem 0; padding-left: 1.2rem; }
+.cv-analysis__gaps li + li { margin-top: 0.5rem; }
+.cv-analysis__gaps strong { font-weight: 600; }
+.cv-analysis__gaps span { display: block; }
+.cv-analysis__summary { margin: 0 0 0.75rem; font-family: var(--font-prose); line-height: 1.6; overflow-wrap: anywhere; }
+.cv-analysis__counts { margin: 0.75rem 0; font-size: 0.85rem; color: var(--ink-2); }
+.cv-analysis__subtitle { margin: 1.1rem 0 0.5rem; font-size: 0.875rem; font-weight: 600; color: var(--heading); }
+.cv-analysis__experiences { list-style: none; margin: 0 0 1rem; padding: 0; border-top: 1px solid var(--rule); }
+.cv-analysis__experience { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 0.35rem 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--rule); overflow-wrap: anywhere; }
+.cv-analysis__role { margin: 0; font-size: 0.875rem; font-weight: 600; line-height: 1.5; }
+.cv-analysis__company { margin: 0.15rem 0 0; font-size: 0.8rem; line-height: 1.5; color: var(--ink-2); }
+.cv-analysis__dates { max-width: 24ch; margin: 0; font-size: 0.8rem; line-height: 1.6; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.cv-analysis__skills { display: flex; flex-wrap: wrap; gap: 0.4rem; list-style: none; padding: 0; margin: 0.75rem 0; }
+.cv-analysis__skills li { max-width: 100%; padding: 0.25rem 0.6rem; border-radius: var(--radius); background: var(--paper-deep); color: var(--ink-2); font-size: 0.8rem; overflow-wrap: anywhere; }
+.cv-analysis__languages { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.5rem 0 1rem; }
+.cv-analysis__languages > div { flex: 1 1 9rem; min-width: 0; padding: 0.6rem 0.75rem; border: 1px solid var(--rule); border-radius: var(--radius); font-size: 0.85rem; line-height: 1.5; overflow-wrap: anywhere; }
+.cv-analysis__languages dt { font-weight: 600; }
+.cv-analysis__languages dd { margin: 0.15rem 0 0; font-size: 0.8rem; color: var(--ink-2); }
+.cv-analysis__languages-empty { margin-bottom: 1rem; }
+.cv-analysis__connection { margin: 1rem 0 0; padding-top: 0.75rem; border-top: 1px solid var(--rule); font-size: 0.85rem; line-height: 1.6; color: var(--ink-2); }
+.cv-analysis__connection a { color: var(--accent); }
+@keyframes onb-analysis-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .upload-bar.is-preparing .upload-bar__fill, .cv-analysis__spinner { animation: none; }
+}
 
 /* --------------------------------------------------------------- salary -- */
 
@@ -226,6 +276,9 @@
     background: linear-gradient(to top, var(--paper) 78%, transparent);
   }
   .option { padding: 0.9rem 1rem; }
+  .cv-analysis__steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cv-analysis__experience { grid-template-columns: minmax(0, 1fr); gap: 0.2rem; }
+  .cv-analysis__dates { max-width: none; }
   .option-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
   .option-grid .option { min-height: 96px; }
   .option-grid .option--wide { min-height: 0; }

@@ -17,7 +17,9 @@
     <section class="panel t-indigo">
       <div class="panel__head">
         <span class="eyebrow">Bibliothèque</span>
-        <span class="panel__actions meta">CV de base, réutilisables</span>
+        <span class="panel__actions meta">
+          {% if copilot_enabled %}<a href="{% url 'jobhunt_ai:profile' %}">Voir les détails extraits</a>{% else %}CV de base, réutilisables{% endif %}
+        </span>
       </div>
       <div class="panel__body">
         {% for document in library %}

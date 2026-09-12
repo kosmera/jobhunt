@@ -41,7 +41,11 @@ class ProfileExperience(BaseModel):
     achievements: list[str] = Field(
         description="Réalisations marquantes, une phrase chacune"
     )
-    skills: list[str] = Field(description="Compétences mobilisées")
+    skills: list[str] = Field(
+        description="Toutes les compétences explicitement citées pour ce poste "
+        "dans ses descriptions, réalisations et technologies ; ne rien déduire "
+        "du seul intitulé. Les inclure aussi dans les compétences globales."
+    )
 
 
 class ProfileEducation(BaseModel):
@@ -51,8 +55,12 @@ class ProfileEducation(BaseModel):
 
 
 class ProfileLanguage(BaseModel):
-    name: str
-    level: str = Field(description="Niveau CECR (A1…C2) ou descriptif court, vide si inconnu")
+    name: str = Field(description="Langue humaine explicitement citée, pas un langage de programmation")
+    level: str = Field(
+        description="Niveau explicitement déclaré dans le CV : conserver le "
+        "code CECR ou le descriptif (langue maternelle, courant, notions…), "
+        "sans inventer de conversion CECR. Vide si le niveau n'est pas précisé."
+    )
 
 
 class ProfileCertification(BaseModel):
@@ -73,12 +81,23 @@ class ParsedProfile(BaseModel):
 
     headline: str = Field(description="Titre professionnel du candidat")
     summary: str = Field(description="Résumé du profil en 3-4 phrases, en français")
-    skills: list[ProfileSkill]
+    skills: list[ProfileSkill] = Field(
+        description="Inventaire exhaustif et sans doublons des compétences "
+        "explicitement citées dans tout le CV : rubriques de compétences, "
+        "expériences, réalisations, projets, formations et certifications. "
+        "Inclure toutes les compétences des expériences, sans limiter leur "
+        "nombre ni ajouter de compétences non mentionnées."
+    )
     experiences: list[ProfileExperience] = Field(
         description="De la plus récente à la plus ancienne"
     )
     education: list[ProfileEducation]
-    languages: list[ProfileLanguage]
+    languages: list[ProfileLanguage] = Field(
+        description="Toutes les langues humaines explicitement citées et "
+        "leurs niveaux déclarés ; liste vide si aucune n'est mentionnée. "
+        "Ne rien déduire de la langue de rédaction du CV, de la nationalité "
+        "ou du lieu de résidence."
+    )
     certifications: list[ProfileCertification]
     detected_language: str = Field(
         description="Langue du CV : code ISO à deux lettres (fr, en, nl)"

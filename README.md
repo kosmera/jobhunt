@@ -158,7 +158,13 @@ Ce que chaque réponse alimente :
 - **Documents** : le CV téléversé devient le CV de base de la bibliothèque. Le
   fichier ne quitte jamais l'espace du profil ; seule une version anonymisée du
   texte est transmise au copilote quand il est activé, et l'écran le dit tel
-  quel — pas de pourcentage inventé.
+  quel. L'analyse du CV est gratuite, y compris pendant le parcours : l'écran
+  suit l'attente, l'extraction et l'enregistrement, puis affiche le résumé,
+  les compétences, les langues avec leurs niveaux, les expériences avec leurs
+  dates et le nombre de formations extraites. Les informations manquantes sont
+  signalées et un rappel invite à vérifier le résultat avec le CV d'origine.
+  Le pourcentage mesure uniquement l'envoi du fichier ; les étapes de
+  l'analyse reflètent l'état réel du worker.
 
 Les états du parcours sont une machine à états finis (`accounts/onboarding/`) :
 un tableau d'étapes avec des gardes, vérifié à l'import et par les tests ; le
@@ -691,6 +697,12 @@ uv run --env-file .env manage.py runserver
 uv run --env-file .env manage.py qcluster
 ```
 
+Après une modification du code des agents ou de `.env`, arrête puis relance
+le worker : `qcluster` ne recharge pas ces changements automatiquement.
+Garde un seul cluster local actif. Pour utiliser une clé OpenAI, définis aussi
+`JOBHUNT_AI_PROVIDER=openai` ; sans fournisseur explicite, une instance locale
+utilise Anthropic. Relance également le serveur web après un changement de `.env`.
+
 Hors `runserver` (production, `JOBHUNT_AUTO_MIGRATE=0`), `manage.py migrate`
 reste une étape explicite : les migrations de `jobhunt_ai` et de `django_q`
 s'appliquent avec les autres. Sur PostgreSQL, web et worker tournent avec le
@@ -710,9 +722,11 @@ chaque requête, à la mise en file et avant chaque étape d'une tâche ;
 `profile.is_premium` en est le miroir sur une instance déjà chargée, pour les
 gabarits. Aucune clé de licence ni clé API n'est demandée aux utilisateurs ;
 activer `DEBUG` ou être administrateur de l'installation ne donne aucun droit.
-Une page du copilote répond 402 à un compte gratuit, un fragment HTMX le
-renvoie vers `/copilote/`. Les comptes gratuits rangent leurs CV sans lancer
-d'analyse.
+Les pages Premium du copilote répondent 402 à un compte gratuit, un fragment
+HTMX le renvoie vers `/copilote/`. L'analyse de CV et le suivi de cette analyse
+sont accessibles aux comptes gratuits actifs, depuis les documents comme
+pendant le parcours Bienvenue. Les autres opérations gardent leur contrôle
+d'accès ; les quotas de l'instance commerciale restent applicables.
 
 En attendant Stripe, un administrateur du service en mode `accounts` renseigne
 la fin de période payée dans **Administration → Profils → Premium jusqu'au** ;

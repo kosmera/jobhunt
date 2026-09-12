@@ -31,8 +31,14 @@
        progress. The request carries `X-Requested-With: XMLHttpRequest`; the
        view answers a redirect with `204` + `X-Onboarding-Redirect`, which is
        followed by navigating there (so the messages of that POST survive).
-       Errors, and a response that re-renders the form with a `.field__error`,
-       fall back to a native submit. A skip submit is left alone.
+       Once the upload finishes, an indeterminate bar shows preparation until
+       navigation. Validation errors replace the form; uncertain network or
+       server failures offer a GET recovery link without resubmitting the CV.
+       A skip submit is left alone unless an upload is already in progress.
+   [data-cv-analysis][data-status-url][data-document-id][data-status]
+       Polls the HTML status endpoint every 2 seconds while pending/running.
+       Replaces only a matching document's analysis section. Terminal states
+       stop polling; unavailable progress offers a link to refresh the page.
 
    The chips combobox, the check-all / exclusive boxes, the salary period
    toggle and the focus on the first invalid field live in fields.js, loaded
@@ -74,7 +80,7 @@
   function updateGate(form) {
     if (!form.hasAttribute("data-requires-choice")) return;
     var button = primaryOf(form);
-    if (button) button.disabled = !hasChoice(form);
+    if (button) button.disabled = !!form.dataset.uploading || !hasChoice(form);
   }
 
   // --- 2. « Passer » ↔ « Continuer » ---------------------------------------
@@ -171,7 +177,7 @@
     zone.classList.remove("is-over");
     var input = zone.querySelector('input[type="file"]');
     var files = event.dataTransfer && event.dataTransfer.files;
-    if (!input || !files || !files.length) return;
+    if (!input || input.matches(":disabled") || !files || !files.length) return;
     try {
       var transfer = new DataTransfer();
       transfer.items.add(files[0]);
@@ -202,63 +208,71 @@
     bar.setAttribute("aria-valuemin", "0");
     bar.setAttribute("aria-valuemax", "100");
     bar.setAttribute("aria-label", "Envoi du fichier");
+    text.setAttribute("aria-live", "polite");
     bar.hidden = false;
     text.hidden = false;
     return { bar: bar, fill: bar.querySelector(".upload-bar__fill"), text: text };
   }
 
   function setProgress(ui, ratio) {
-    var percent = Math.round(Math.min(1, Math.max(0, ratio)) * 100);
+    if (ratio >= 1) { setPreparing(ui); return; }
+    var percent = Math.min(99, Math.round(Math.max(0, ratio) * 100));
     if (ui.fill) ui.fill.style.setProperty("--upload-progress", String(percent / 100));
     ui.bar.setAttribute("aria-valuenow", String(percent));
     ui.text.textContent = "Envoi du fichier… " + percent + " %";
   }
 
-  // `form.action` / `form.submit` are shadowed by fields named "action" or
-  // "submit" (the upload button is name=action): go through the attribute and
-  // the prototype instead.
+  function setPreparing(ui) {
+    ui.bar.classList.add("is-preparing");
+    ui.bar.removeAttribute("aria-valuenow");
+    ui.bar.setAttribute("aria-label", "Préparation du CV");
+    ui.text.textContent = "Envoi terminé. Préparation du CV pour l’analyse…";
+  }
+
+  // `form.action` is shadowed by the upload button named "action".
   function formUrl(form) {
     return form.getAttribute("action") || window.location.href;
   }
 
-  function reRenderedWithErrors(html) {
-    try {
-      return new DOMParser().parseFromString(html, "text/html").querySelector(".field__error") !== null;
-    } catch (err) {
-      return html.indexOf("field__error") !== -1;
-    }
-  }
-
-  function submitNatively(form, submitter) {
-    if (submitter && submitter.name && !form.querySelector('input[type="hidden"][name="' + submitter.name + '"]')) {
-      var carrier = document.createElement("input");
-      carrier.type = "hidden"; carrier.name = submitter.name; carrier.value = submitter.value;
-      form.appendChild(carrier);
-    }
-    HTMLFormElement.prototype.submit.call(form);
+  function renderUploadErrors(form, html) {
+    var page = new DOMParser().parseFromString(html, "text/html");
+    var replacement = page.querySelector("form[data-upload-form]");
+    var error = replacement && replacement.querySelector(".field__error, .flash.t-red");
+    if (!error) return false;
+    form.replaceWith(replacement);
+    updateGate(replacement);
+    error.setAttribute("tabindex", "-1");
+    error.focus();
+    return true;
   }
 
   document.addEventListener("submit", function (event) {
     var form = event.target;
     if (!form.hasAttribute("data-upload-form")) return;
+    if (form.dataset.uploading) { event.preventDefault(); return; }
     var submitter = event.submitter;
     if (submitter && submitter.value === "skip") return;
     var file = form.querySelector('input[type="file"]');
     if (!file || !file.files || !file.files.length || !window.FormData) return;
     event.preventDefault();
-    if (form.dataset.uploading) return;
     form.dataset.uploading = "1";
 
     var data = new FormData(form);
     if (submitter && submitter.name) data.append(submitter.name, submitter.value);
     var ui = ensureBar(form);
-    var button = primaryOf(form);
-    if (button) button.disabled = true;
+    form.querySelectorAll('fieldset, button[type="submit"]').forEach(function (control) { control.disabled = true; });
     setProgress(ui, 0);
 
-    function fallback() {
-      delete form.dataset.uploading;
-      submitNatively(form, submitter);
+    function uploadFailure() {
+      // The server may already have saved the upload. Keep this form locked
+      // until a GET checks the result, so a lost response cannot duplicate it.
+      ui.bar.hidden = true;
+      ui.text.textContent = "Impossible de confirmer l’envoi. Vérifie si ton CV a été enregistré avant de réessayer.";
+      var recovery = document.createElement("a");
+      recovery.className = "upload-bar__recovery";
+      recovery.href = form.dataset.recoveryUrl || formUrl(form);
+      recovery.textContent = "Vérifier mon CV";
+      ui.text.appendChild(recovery);
     }
 
     var xhr = new XMLHttpRequest();
@@ -266,31 +280,70 @@
     // The server answers such a request with 204 + the address to go to, so
     // the redirect is not followed here and its messages reach the visitor.
     xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+    xhr.timeout = 120000;
     xhr.upload.addEventListener("progress", function (progress) {
       if (progress.lengthComputable) setProgress(ui, progress.loaded / progress.total);
     });
+    xhr.upload.addEventListener("load", function () { setPreparing(ui); });
     xhr.addEventListener("load", function () {
       var next = xhr.status === 204 && xhr.getResponseHeader("X-Onboarding-Redirect");
       if (next) {
-        setProgress(ui, 1);
+        setPreparing(ui);
         window.location.assign(next);
-      } else if (xhr.status >= 200 && xhr.status < 400 && !reRenderedWithErrors(xhr.responseText)) {
-        setProgress(ui, 1);
+      } else if (xhr.status >= 200 && xhr.status < 400) {
+        if (renderUploadErrors(form, xhr.responseText)) return;
+        setPreparing(ui);
         window.location.assign(xhr.responseURL || formUrl(form));
       } else {
-        // A re-rendered form (validation error): let the server render it as a
-        // full page instead of losing the message.
-        fallback();
+        uploadFailure();
       }
     });
-    xhr.addEventListener("error", fallback);
-    xhr.addEventListener("abort", fallback);
+    xhr.addEventListener("error", uploadFailure);
+    xhr.addEventListener("abort", uploadFailure);
+    xhr.addEventListener("timeout", uploadFailure);
     xhr.send(data);
   });
+
+  // --- 5. CV analysis progress --------------------------------------------
+  function pollAnalysis(card) {
+    if (!card || !card.isConnected || !card.dataset.statusUrl
+        || (card.dataset.status !== "pending" && card.dataset.status !== "running")) return;
+    window.setTimeout(function () {
+      if (!card.isConnected) return;
+      var controller = new AbortController();
+      var timeout = window.setTimeout(function () { controller.abort(); }, 15000);
+      window.fetch(card.dataset.statusUrl, {
+        credentials: "same-origin", cache: "no-store", redirect: "error", signal: controller.signal,
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      }).then(function (response) {
+        if (!response.ok || response.redirected) throw new Error("Analysis status unavailable");
+        return response.text();
+      }).then(function (html) {
+        if (!card.isConnected) return;
+        var page = new DOMParser().parseFromString(html, "text/html");
+        var replacement = page.querySelector("[data-cv-analysis]");
+        if (!replacement || replacement.dataset.documentId !== card.dataset.documentId) {
+          throw new Error("Analysis document changed");
+        }
+        // Leave unchanged live regions in place so screen readers do not
+        // announce the same worker stage every two seconds.
+        if (replacement.outerHTML !== card.outerHTML) {
+          card.replaceWith(replacement);
+          card = replacement;
+        }
+        pollAnalysis(card);
+      }).catch(function () {
+        if (!card.isConnected) return;
+        var warning = card.querySelector(".cv-analysis__connection");
+        if (warning) warning.hidden = false;
+      }).finally(function () { window.clearTimeout(timeout); });
+    }, 2000);
+  }
 
   // --- Initial state -------------------------------------------------------
   document.querySelectorAll(".onb form").forEach(function (form) {
     updateGate(form);
     syncSkipLabel(form);
   });
+  document.querySelectorAll("[data-cv-analysis]").forEach(pollAnalysis);
 })();

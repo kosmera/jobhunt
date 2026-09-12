@@ -4,7 +4,7 @@
   {% if card and not replacing %}
     <form method="post" class="onb__form" novalidate>
       {% csrf_token %}
-      <h1 class="onb__title">Ton CV est rangé.</h1>
+      <h1 class="onb__title">Ton CV est enregistré.</h1>
       <div class="result-card">
         <div class="result-card__row t-green">
           <svg aria-hidden="true"><use href="#i-check"></use></svg>
@@ -18,6 +18,7 @@
         {% if card.redactions %}
           <div class="result-card__row t-green"><svg aria-hidden="true"><use href="#i-check"></use></svg><span>Données personnelles masquées avant toute analyse : {{ card.redactions }}</span></div>
         {% endif %}
+        {% if not card.analysis %}
         <div class="result-card__row {% if card.status == 'analyzed' %}t-green{% else %}t-slate{% endif %}">
           <svg aria-hidden="true"><use href="#i-send"></use></svg>
           <span>
@@ -27,33 +28,37 @@
             {% else %}Trop court ou illisible pour être analysé — gardé quand même.{% endif %}
           </span>
         </div>
+        {% endif %}
       </div>
+      {% if card.analysis %}{% include "accounts/onboarding/partials/cv_analysis.html" with analysis=card.analysis %}{% endif %}
       <div class="onb__actions">
         <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">Continuer</button>
         <a class="btn btn--ghost btn--block" href="?remplacer=1">Remplacer ce fichier</a>
       </div>
     </form>
   {% else %}
-    <form method="post" enctype="multipart/form-data" class="onb__form" novalidate data-upload-form data-requires-choice>
+    <form method="post" enctype="multipart/form-data" class="onb__form" novalidate data-upload-form data-requires-choice data-recovery-url="{% url 'accounts:onboarding_step' slug='cv' %}">
       {% csrf_token %}
       {% if replacing %}<input type="hidden" name="replacing" value="{{ card.document.pk }}">{% endif %}
       <fieldset class="onb__fieldset">
         <span class="pill dropzone__badge">Recommandé · Sert de base à chaque candidature</span>
         <legend class="onb__title">{{ step.title }}</legend>
         <p class="onb__lede">{{ step.lede }}</p>
+        {% if ai_plugin %}<p class="onb__note onb__note--analysis">L’analyse par nos agents IA est gratuite. Nous extrayons ton parcours, tes formations et tes compétences.</p>{% endif %}
         {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
         <label class="dropzone" data-dropzone>
           <svg class="dropzone__icon" aria-hidden="true"><use href="#i-download"></use></svg>
           <span class="dropzone__title">Glisse ton CV ici</span>
           <span class="dropzone__or">ou</span>
           <span class="btn btn--primary dropzone__button">Choisir un fichier</span>
+          <span class="dropzone__hint" id="{{ form.file.auto_id }}_helptext">{{ form.file.help_text }}</span>
           {{ form.file }}
           <span class="dropzone__file" hidden></span>
         </label>
-        {% for error in form.file.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+        {% if form.file.errors %}<span class="field__error" id="{{ form.file.auto_id }}_error">{{ form.file.errors|join:" " }}</span>{% endif %}
         {% include "tracker/partials/field.html" with field=form.language %}
         <div class="upload-bar" hidden><span class="upload-bar__fill"></span></div>
-        <p class="upload-bar__text" hidden>Envoi du fichier…</p>
+        <p class="upload-bar__text" role="status" aria-live="polite" hidden>Envoi du fichier…</p>
       </fieldset>
       <div class="onb__actions">
         <button type="submit" name="action" value="upload" class="btn btn--primary btn--block">Envoyer</button>

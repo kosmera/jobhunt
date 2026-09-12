@@ -6,7 +6,7 @@ text (an anonymized object with text/redactions), and make_primary (optional).
 previous_owner_id.
 """
 
-from jobhunt_ai.access import has_copilot_access
+from jobhunt_ai.access import has_cv_parsing_access
 
 _connections = []
 
@@ -20,8 +20,7 @@ def receive_cv(
     from jobhunt_ai.models import RunKind
     from jobhunt_ai.services import runner
 
-    # Free accounts still store their CV normally, without scheduling paid work.
-    if not has_copilot_access(owner):
+    if not has_cv_parsing_access(owner):
         return None
     if not Document.objects.filter(
         owner=owner, pk=document_id, kind=DocumentKind.CV

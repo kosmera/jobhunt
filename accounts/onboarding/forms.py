@@ -223,7 +223,7 @@ class CVForm(forms.Form):
         label="Ton CV",
         # Visually hidden: the dropzone label around it opens the picker, and the
         # focus ring lands on the dropzone (``.dropzone:has(:focus-visible)``).
-        widget=forms.ClearableFileInput(attrs={"accept": ".pdf,.docx", "class": "visually-hidden"}),
+        widget=forms.ClearableFileInput(attrs={"class": "visually-hidden"}),
         error_messages={"required": "Choisis un fichier."},
     )
     language = forms.ChoiceField(
@@ -232,6 +232,14 @@ class CVForm(forms.Form):
         widget=forms.Select(attrs={"class": "input"}),
         error_messages={"required": "Choisis la langue du CV.", "invalid_choice": "Choisis la langue du CV."},
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        suffixes = sorted(CV_SUFFIXES, reverse=True)
+        self.fields["file"].widget.attrs["accept"] = ",".join(suffixes)
+        formats = " ou ".join(f"{suffix[1:].upper()} ({suffix})" for suffix in suffixes)
+        limit = _megabytes(settings.FILE_UPLOAD_MAX_MEMORY_SIZE)
+        self.fields["file"].help_text = f"{formats} · {limit} Mo max."
 
     def clean_file(self):
         upload = self.cleaned_data["file"]

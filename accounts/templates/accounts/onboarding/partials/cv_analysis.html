@@ -1,0 +1,68 @@
+<section class="cv-analysis" data-cv-analysis data-document-id="{{ card.document.pk }}" data-status="{{ analysis.status|default:'unavailable' }}" data-phase="{{ analysis.phase }}"{% if analysis.status == 'pending' or analysis.status == 'running' %} data-status-url="{% url 'accounts:onboarding_cv_status' %}?document={{ card.document.pk }}"{% endif %} aria-labelledby="cv-analysis-title">
+  <div class="cv-analysis__heading">
+    <h2 id="cv-analysis-title" class="cv-analysis__title">{% if analysis.status == 'succeeded' %}Ton CV a été analysé.{% elif analysis.status == 'failed' %}L’analyse n’a pas abouti.{% elif analysis.status == 'pending' or analysis.status == 'running' %}Ton CV est en cours d’analyse.{% else %}Ton CV est enregistré.{% endif %}</h2>
+    <span class="pill cv-analysis__free">Analyse IA gratuite</span>
+  </div>
+  {% if analysis.status == 'pending' or analysis.status == 'running' %}
+    <p class="cv-analysis__status" role="status" aria-live="polite"><span class="cv-analysis__spinner" aria-hidden="true"></span>{% if analysis.status == 'pending' %}En attente d’un agent IA…{% else %}{{ analysis.phase|default:"Démarrage de l’analyse" }}…{% endif %}</p>
+    <ol class="cv-analysis__steps" aria-label="Étapes de l’analyse">
+      <li class="is-complete"><svg aria-hidden="true"><use href="#i-check"></use></svg>Envoi reçu</li>
+      <li class="is-complete"><svg aria-hidden="true"><use href="#i-check"></use></svg>CV préparé</li>
+      <li{% if analysis.status == 'pending' %} aria-current="step"{% else %} class="is-complete"{% endif %}>{% if analysis.status != 'pending' %}<svg aria-hidden="true"><use href="#i-check"></use></svg>{% endif %}File d’attente</li>
+      <li{% if analysis.status == 'running' and analysis.progress_current < 2 %} aria-current="step"{% elif analysis.progress_current >= 2 %} class="is-complete"{% endif %}>{% if analysis.progress_current >= 2 %}<svg aria-hidden="true"><use href="#i-check"></use></svg>{% endif %}Analyse IA</li>
+      <li{% if analysis.status == 'running' and analysis.progress_current >= 2 %} aria-current="step"{% endif %}>Enregistrement</li>
+      <li>Terminé</li>
+    </ol>
+    <p class="onb__note">Tu peux continuer : l’analyse se poursuit en arrière-plan. Tu retrouveras les détails extraits dans Documents.</p>
+    <noscript><p class="onb__note"><a href="{% url 'accounts:onboarding_step' slug='cv' %}">Actualiser pour voir l’avancement</a></p></noscript>
+  {% elif analysis.status == 'succeeded' %}
+    <p class="cv-analysis__status t-green" role="status"><svg aria-hidden="true"><use href="#i-check"></use></svg>Analyse terminée · informations enregistrées</p>
+    <div class="cv-analysis__review{% if analysis.incomplete_experience_count or analysis.missing_experiences %} t-amber{% endif %}" role="status" aria-labelledby="cv-review-title">
+      <h3 id="cv-review-title">{% if analysis.incomplete_experience_count or analysis.missing_experiences %}Des informations sont à vérifier{% else %}Vérifie les informations extraites{% endif %}</h3>
+      {% if analysis.incomplete_experience_count %}
+        <p>Certaines informations n’ont pas été retrouvées dans les expériences extraites :</p>
+        <ul class="cv-analysis__gaps">
+          {% for experience in analysis.experiences %}
+            {% if experience.missing_fields %}<li><strong>{% if 'intitulé du poste' in experience.missing_fields %}Poste non précisé{% else %}{{ experience.title }}{% endif %}{% if experience.company and 'entreprise' not in experience.missing_fields %} · {{ experience.company }}{% endif %}</strong><span>Informations absentes : {{ experience.missing_fields|join:", " }}.</span></li>{% endif %}
+          {% endfor %}
+        </ul>
+      {% elif analysis.missing_experiences %}
+        <p>Aucune expérience professionnelle n’a été extraite. Si ton CV contient des expériences professionnelles, elles peuvent avoir été omises.</p>
+      {% endif %}
+      <p>Compare les postes, les entreprises, les dates, les langues et leurs niveaux avec ton CV d’origine. Une mise en page complexe peut entraîner des expériences oubliées ou des dates incorrectes, même si les lignes affichées semblent complètes.</p>
+    </div>
+    {% if analysis.summary %}<p class="cv-analysis__summary">{{ analysis.summary }}</p>{% endif %}
+    <p class="cv-analysis__counts">{{ analysis.experience_count }} expérience{{ analysis.experience_count|pluralize }} · {{ analysis.education_count }} formation{{ analysis.education_count|pluralize }} · {{ analysis.skills|length }} compétence{{ analysis.skills|length|pluralize }} · {{ analysis.languages|length }} langue{{ analysis.languages|length|pluralize }}</p>
+    {% if analysis.experiences %}
+      <h3 class="cv-analysis__subtitle" id="cv-experiences-title">Expériences professionnelles</h3>
+      <ul class="cv-analysis__experiences" aria-labelledby="cv-experiences-title">
+        {% for experience in analysis.experiences %}
+          <li class="cv-analysis__experience">
+            <div>
+              <p class="cv-analysis__role">{{ experience.title|default:"Poste non précisé" }}</p>
+              <p class="cv-analysis__company">{{ experience.company|default:"Entreprise non précisée" }}</p>
+            </div>
+            <p class="cv-analysis__dates">{% if not experience.start and not experience.end and not experience.current %}Dates non précisées{% else %}{{ experience.start|default:"Début non précisé" }} — {% if experience.current %}aujourd’hui{% else %}{{ experience.end|default:"Fin non précisée" }}{% endif %}{% endif %}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% if analysis.skills %}<ul class="cv-analysis__skills" aria-label="Compétences extraites">{% for skill in analysis.skills %}<li>{{ skill }}</li>{% endfor %}</ul>{% endif %}
+    <h3 class="cv-analysis__subtitle" id="cv-languages-title">Langues</h3>
+    {% if analysis.languages %}
+      <dl class="cv-analysis__languages" aria-labelledby="cv-languages-title">
+        {% for language in analysis.languages %}
+          <div><dt>{{ language.name.strip|default:"Langue non précisée" }}</dt><dd>{{ language.level.strip|default:"Niveau non précisé" }}</dd></div>
+        {% endfor %}
+      </dl>
+    {% else %}
+      <p class="onb__note cv-analysis__languages-empty">Aucune langue identifiée dans ce CV.</p>
+    {% endif %}
+    <p class="onb__note">Tu pourras consulter et vérifier ces informations dans Documents.</p>
+  {% elif analysis.status == 'failed' %}
+    <p class="cv-analysis__status" role="status">Ton CV est conservé. Tu peux continuer, remplacer le fichier ou relancer son analyse depuis Documents après l’inscription.</p>
+  {% else %}
+    <p class="onb__note">Le suivi de l’analyse est indisponible. Ton CV reste enregistré.</p>
+  {% endif %}
+  <p class="cv-analysis__connection" role="status" hidden>Le suivi est momentanément indisponible. L’analyse peut continuer en arrière-plan. <a href="{% url 'accounts:onboarding_step' slug='cv' %}">Actualiser le suivi</a></p>
+</section>

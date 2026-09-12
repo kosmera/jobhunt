@@ -15,16 +15,44 @@ PREMIUM_REQUIRED = "Le copilote est inclus dans l'abonnement Premium."
 
 
 def has_copilot_access(user) -> bool:
-    if not user or not user.is_authenticated or not user.pk or not user.is_active:
+    if not has_cv_parsing_access(user):
         return False
     if is_saas_production():
         return True  # Freemium access is metered at the AI port, too, in workers.
     return has_premium(user)
 
 
+def has_cv_parsing_access(user) -> bool:
+    """Extracting a user's CV is included for every active account."""
+    return bool(user and user.is_authenticated and user.pk and user.is_active)
+
+
 def require_copilot_access(user) -> None:
     if not has_copilot_access(user):
         raise PermissionDenied(PREMIUM_REQUIRED)
+
+
+def require_run_access(user, kind) -> None:
+    from jobhunt_ai.models import RunKind
+
+    if kind == RunKind.PARSE_CV and has_cv_parsing_access(user):
+        return
+    require_copilot_access(user)
+
+
+def run_access_required(view):
+    """Free CV parsing includes polling that account's own analysis."""
+    @functools.wraps(view)
+    def wrapped(request, pk, *args, **kwargs):
+        from accounts.services import owned_or_404
+        from jobhunt_ai.models import AgentRun, RunKind
+
+        run = owned_or_404(AgentRun.objects.only("kind"), request.user, pk=pk)
+        if run.kind == RunKind.PARSE_CV and has_cv_parsing_access(request.user):
+            return view(request, pk, *args, **kwargs)
+        return premium_required(view)(request, pk, *args, **kwargs)
+
+    return wrapped
 
 
 def premium_required(view):

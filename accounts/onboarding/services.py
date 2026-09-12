@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 
+from django.apps import apps
 from django.conf import settings
 
 from accounts import conf
@@ -120,6 +122,7 @@ class CVCard:
     redactions: str
     #: ``analyzed`` · ``no_plugin`` · ``unreadable`` · ``too_short`` · ``not_analyzed``
     status: str
+    analysis: dict[str, Any] | None = None
 
 
 def cv_card(user, answers: Answers, ctx: Context) -> CVCard | None:
@@ -147,8 +150,14 @@ def cv_card(user, answers: Answers, ctx: Context) -> CVCard | None:
         status = "too_short"
     else:
         status = "not_analyzed"  # long enough, but the extension refused it
+    analysis = None
+    if ctx.ai_plugin and apps.is_installed("jobhunt_ai"):
+        # Like the navigation hooks, load the optional extension only when
+        # installed. Session intake flags do not describe a worker's outcome.
+        hooks = import_module("jobhunt_ai.hooks")
+        analysis = hooks.cv_analysis_status(user, document_id=document.pk)
     redactions = answers.get("cv_redactions")
-    return CVCard(document, text_chars, redactions if isinstance(redactions, str) else "", status)
+    return CVCard(document, text_chars, redactions if isinstance(redactions, str) else "", status, analysis)
 
 
 # ---------------------------------------------------------------------------

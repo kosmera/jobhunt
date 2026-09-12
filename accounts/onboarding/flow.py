@@ -238,7 +238,7 @@ STEPS: tuple[Step, ...] = (
         "cv", "cv", Kind.FILE, "plan",
         title="Ton CV, pour partir du bon pied",
         lede="Il devient ton CV de base dans Documents : chaque candidature part de là.",
-        note="PDF ou DOCX, 20 Mo max. Le fichier reste dans ton espace ; seule une version "
+        note="Le fichier reste dans ton espace ; seule une version "
         "anonymisée du texte peut être lue par une extension.",
         answer_keys=("cv_document_id", "cv_text_chars", "cv_redactions", "cv_analyzed", "cv_language"),
         skip_values={

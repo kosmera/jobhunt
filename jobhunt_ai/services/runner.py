@@ -21,7 +21,7 @@ from django_q.exceptions import TimeoutException
 
 from jobhunt_ai import conf
 from jobhunt_ai.quotas import QuotaExceededException
-from jobhunt_ai.access import require_copilot_access
+from jobhunt_ai.access import require_run_access
 from jobhunt_ai.models import AgentRun, CandidateProfile, RunKind, RunStatus
 from tracker.models import Application
 
@@ -112,7 +112,7 @@ def execute(run_id: int, owner_id: int, *, raise_errors=False) -> None:
             run = AgentRun.objects.get(pk=run_id, owner_id=owner_id)
         try:
             with rls.as_user(owner_id):
-                require_copilot_access(get_user_model().objects.get(pk=owner_id))
+                require_run_access(get_user_model().objects.get(pk=owner_id), run.kind)
             # Scraping and LLM calls run outside database transactions.
             result = _dispatch(run)
         except QuotaExceededException as exc:
@@ -183,7 +183,7 @@ def launch(
         # Serialize submissions for this account across web processes. SQLite
         # uses the host's IMMEDIATE transactions; production uses PostgreSQL.
         owner = get_user_model().objects.select_for_update().get(pk=owner.pk)
-        require_copilot_access(owner)
+        require_run_access(owner, kind)
         sweep_orphans(owner)
         active = AgentRun.objects.filter(owner=owner, status__in=ACTIVE)
         if application is not None:

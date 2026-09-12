@@ -31,6 +31,67 @@ def nav_badges(request) -> dict[str, int]:
     }
 
 
+def cv_analysis_status(user, *, document_id) -> dict | None:
+    """Expose only the owned CV's progress and successful extracted details."""
+    from jobhunt_ai.access import has_cv_parsing_access
+    from jobhunt_ai.models import AgentRun, CandidateProfile, RunKind, RunStatus
+    from jobhunt_ai.services import runner
+    from tracker.models import Document, DocumentKind
+
+    if not has_cv_parsing_access(user) or not Document.objects.filter(
+        owner=user, pk=document_id, kind=DocumentKind.CV
+    ).exists():
+        return None
+    run = AgentRun.objects.filter(
+        owner=user, kind=RunKind.PARSE_CV, params__document_id=document_id,
+    ).only("status", "phase", "result", "progress_current", "progress_total").order_by(
+        "-created_at", "-pk"
+    ).first()
+    if run is None:
+        return None
+    runner.sweep_orphans(user, run_id=run.pk)
+    run.refresh_from_db(fields=["status", "phase", "result", "progress_current", "progress_total"])
+    result = {
+        "status": run.status, "phase": run.phase,
+        "progress_current": run.progress_current, "progress_total": run.progress_total,
+    }
+    if run.status == RunStatus.SUCCEEDED:
+        profile = CandidateProfile.objects.filter(
+            owner=user, source_document_id=document_id, pk=run.result.get("profile_id"),
+        ).first()
+        if profile is None:
+            return {"status": RunStatus.FAILED, "phase": ""}
+        experiences = []
+        for experience in profile.experiences:
+            missing_fields = [
+                label for field, label in (
+                    ("title", "intitulé du poste"),
+                    ("company", "entreprise"),
+                    ("start", "date de début"),
+                ) if not (experience.get(field) or "").strip()
+            ]
+            if not experience.get("current") and not (experience.get("end") or "").strip():
+                missing_fields.append("date de fin")
+            experiences.append({**experience, "missing_fields": missing_fields})
+        result.update(
+            summary=profile.summary,
+            skills=profile.skill_names,
+            languages=[
+                {
+                    "name": (language.get("name") or "").strip(),
+                    "level": (language.get("level") or "").strip(),
+                }
+                for language in profile.languages
+            ],
+            experiences=experiences,
+            experience_count=len(experiences),
+            incomplete_experience_count=sum(bool(experience["missing_fields"]) for experience in experiences),
+            missing_experiences=not experiences,
+            education_count=len(profile.education),
+        )
+    return result
+
+
 class CopilotCVAnalyzer:
     """Analyseur de CV pour les vues du copilote.
 

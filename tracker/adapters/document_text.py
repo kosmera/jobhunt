@@ -53,6 +53,7 @@ def extract_text(file_name: str, data: bytes) -> str:
 def _pdf(data: bytes) -> str:
     from pypdf import PdfReader
     from pypdf.errors import PyPdfError
+    from pypdf.generic import DictionaryObject
 
     try:
         reader = PdfReader(io.BytesIO(data))
@@ -60,7 +61,37 @@ def _pdf(data: bytes) -> str:
             # An owner password only: the content opens with an empty one.
             if not reader.decrypt(""):
                 raise UnsupportedFormat("PDF protégé par un mot de passe.")
-        pages = [page.extract_text() or "" for page in reader.pages]
+        pages = []
+        for page in reader.pages:
+            if "/Contents" not in page:
+                pages.append("")
+                continue
+            resources = page["/Resources"] if "/Resources" in page else {}
+            xobjects = (
+                resources["/XObject"]
+                if isinstance(resources, DictionaryObject) and "/XObject" in resources else {}
+            )
+            objects = (
+                (obj.get_object() for obj in xobjects.values())
+                if isinstance(xobjects, DictionaryObject) else ()
+            )
+            if any(
+                isinstance(obj, DictionaryObject) and obj.get("/Subtype") == "/Form"
+                for obj in objects
+            ):
+                # Layout mode skips Form XObjects, even when regular page
+                # text is present. Plain extraction follows their text too.
+                pages.append(page.extract_text() or "")
+                continue
+            # PDF drawing order can split sentences into one word per line
+            # or concatenate separate skill categories. Rebuild visual lines
+            # before anonymization and analysis; keep rotated text as well.
+            text = page.extract_text(
+                extraction_mode="layout",
+                layout_mode_space_vertically=False,
+                layout_mode_strip_rotated=False,
+            )
+            pages.append(text if text.strip() else (page.extract_text() or ""))
     except PyPdfError as exc:
         raise UnsupportedFormat(f"PDF illisible : {exc}") from exc
     return "\n\n".join(pages).strip()
@@ -99,7 +130,12 @@ def _docx(data: bytes) -> str:
         return False
 
     def text_of(element) -> str:
-        return "".join(node.text or "" for node in element.iter(qn("w:t")))
+        # A text box can nest paragraphs inside another paragraph. Each is
+        # visited by walk(), so only read text belonging to this paragraph.
+        return "".join(
+            node.text or "" for node in element.iter(qn("w:t"))
+            if next(node.iterancestors(paragraph_tag), None) is element
+        )
 
     def walk(root) -> Iterator[str]:
         for element in root.iter(paragraph_tag):
@@ -113,11 +149,18 @@ def _docx(data: bytes) -> str:
             yield f"\t{line}" if parent is not None and parent.tag == cell_tag else line
 
     parts: list[str] = []
+    seen_parts: set[str] = set()
     for section in document.sections:
         for header_or_footer in (section.header, section.footer,
                                  section.first_page_header, section.first_page_footer,
                                  section.even_page_header, section.even_page_footer):
-            parts.extend(walk(header_or_footer._element))
+            # Linked sections reference the same part. Deduplicate that
+            # structural repetition, never equal text in separate paragraphs:
+            # repeated employers and dates still belong to each experience.
+            part_name = str(header_or_footer.part.partname)
+            if part_name not in seen_parts:
+                seen_parts.add(part_name)
+                parts.extend(walk(header_or_footer._element))
     parts.extend(walk(document.element.body))
     # A cell's line is marked with a tab; join a run of them with « · ».
     lines: list[str] = []
@@ -132,6 +175,4 @@ def _docx(data: bytes) -> str:
         lines.append(part)
     if cells:
         lines.append(" · ".join(cells))
-    seen: set[str] = set()
-    unique = [line for line in lines if not (line in seen or seen.add(line))]
-    return "\n".join(unique).strip()
+    return "\n".join(lines).strip()

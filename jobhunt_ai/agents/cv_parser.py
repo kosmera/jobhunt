@@ -12,9 +12,9 @@ from typing import TypedDict
 import rls
 from langgraph.graph import END, START, StateGraph
 
-from jobhunt_ai.agents.schemas import ParsedProfile
+from jobhunt_ai.agents.schemas import ParsedProfile, ProfileSkill
 from jobhunt_ai.models import AgentRun, CandidateProfile
-from jobhunt_ai.services import documents, llm
+from jobhunt_ai.services import documents, llm, runner
 from jobhunt_ai.services.accounts import identity as account_identity
 
 SYSTEM_PROMPT = """\
@@ -22,6 +22,20 @@ Tu analyses le CV d'un candidat pour le compte de son propre outil de suivi
 de candidatures. Extrais fidèlement le contenu vers le schéma demandé :
 - ne rien inventer ni embellir ; un champ inconnu reste vide ;
 - conserver la terminologie technique telle quelle (noms d'outils, sigles) ;
+- dresser l'inventaire complet des compétences explicitement citées dans
+  tout le CV : rubriques de compétences, expériences et réalisations,
+  projets, formations et certifications. Inclure les outils, langages,
+  frameworks, méthodes et domaines nommés, même dans une liste ou sur
+  plusieurs lignes d'un PDF ; ne pas se limiter au résumé ou à une sélection ;
+- inclure dans la liste globale skills toutes les compétences citées dans
+  les expériences, sans doublons. Ne pas déduire de compétences d'un titre
+  de poste ou d'une technologie apparentée, ni inventer de niveau ou de durée ;
+- extraire dans languages toutes les langues humaines explicitement citées
+  et leur niveau déclaré, à distinguer des langages de programmation.
+  Conserver les niveaux tels qu'indiqués (langue maternelle, courant,
+  notions, B2…), sans inventer de conversion CECR ; laisser le niveau vide
+  s'il n'est pas précisé. Ne déduire ni langue maîtrisée ni niveau de la
+  langue de rédaction du CV, de la nationalité ou du lieu de résidence ;
 - rédiger les textes libres (résumé, descriptions) en français, même si le
   CV est dans une autre langue ;
 - classer les expériences de la plus récente à la plus ancienne ;
@@ -49,6 +63,7 @@ def load_text(state: ParserState) -> ParserState:
     Le cœur applique déjà le même seuil avant d'appeler l'analyseur : ce
     contrôle couvre les exécutions créées autrement (l'admin, une relance).
     """
+    runner.progress(state.get("run_id"), state["owner_id"], "Lecture du CV", 0, 3)
     text = (state.get("raw_text") or "").strip()
     if len(text) < documents.MIN_TEXT_LENGTH:
         raise RuntimeError(
@@ -59,7 +74,25 @@ def load_text(state: ParserState) -> ParserState:
     return {"raw_text": text}
 
 
+def complete_skills(profile: ParsedProfile) -> list[ProfileSkill]:
+    """Keep detailed skills and include names already extracted from roles."""
+    skills = list(profile.skills)
+    skills.extend(
+        ProfileSkill(name=name, category="", level="", years="")
+        for experience in profile.experiences for name in experience.skills
+    )
+    unique: dict[str, ProfileSkill] = {}
+    for skill in skills:
+        name = " ".join(skill.name.split())
+        if name and name.casefold() not in unique:
+            unique[name.casefold()] = skill.model_copy(update={"name": name})
+    return list(unique.values())
+
+
 def parse(state: ParserState) -> ParserState:
+    runner.progress(
+        state.get("run_id"), state["owner_id"], "Extraction des compétences et du parcours", 1, 3
+    )
     result = llm.parse_structured(
         ParsedProfile,
         system=SYSTEM_PROMPT,
@@ -68,10 +101,12 @@ def parse(state: ParserState) -> ParserState:
         owner_id=state["owner_id"],
     )
     profile: ParsedProfile = result.data
+    skills = complete_skills(profile)
 
     from django.contrib.auth import get_user_model
 
     owner_id = state["owner_id"]
+    runner.progress(state.get("run_id"), owner_id, "Enregistrement du profil", 2, 3)
     document_id = state.get("document_id")
     with rls.as_user(owner_id):
         owner = get_user_model().objects.get(pk=owner_id)
@@ -86,6 +121,7 @@ def parse(state: ParserState) -> ParserState:
             label=state.get("label") or (document.label if document else "Profil"),
             language=profile.detected_language[:2] or state.get("language", ""),
             is_primary=state.get("make_primary", False)
+            or bool(document and document.application_id is None and document.is_primary)
             or not CandidateProfile.objects.filter(owner_id=owner_id).exists(),
             # L'identité vient du compte : le CV remis au modèle est
             # anonymisé, il n'en resterait que des marqueurs.
@@ -95,7 +131,7 @@ def parse(state: ParserState) -> ParserState:
             location=identity.location,
             headline=profile.headline,
             summary=profile.summary,
-            skills=[skill.model_dump() for skill in profile.skills],
+            skills=[skill.model_dump() for skill in skills],
             experiences=[exp.model_dump() for exp in profile.experiences],
             education=[edu.model_dump() for edu in profile.education],
             languages=[lang.model_dump() for lang in profile.languages],
@@ -103,7 +139,7 @@ def parse(state: ParserState) -> ParserState:
             raw_text=state.get("raw_text", ""),
             source_document=document,
         )
-    return {"profile_id": record.pk, "skill_count": len(profile.skills)}
+    return {"profile_id": record.pk, "skill_count": len(skills)}
 
 
 def build_graph():
@@ -144,4 +180,5 @@ def run(agent_run: AgentRun) -> dict:
         )
         agent_run.profile = profile
         agent_run.save(update_fields=["profile"])
+    runner.progress(agent_run.pk, agent_run.owner_id, "Analyse terminée", 3, 3)
     return {"profile_id": profile.pk, "skill_count": state.get("skill_count", 0)}

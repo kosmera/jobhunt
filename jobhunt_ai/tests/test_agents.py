@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import shutil
 import tempfile
 from datetime import timedelta
@@ -183,6 +184,89 @@ class CVParserTests(TestCase):
         assert run is not None
         self.assertEqual(run.status, RunStatus.SUCCEEDED, run.error)
         self.assertTrue(CandidateProfile.objects.get().is_primary)
+
+    def test_experience_skills_complete_the_profile_without_losing_existing_details(self):
+        from jobhunt_ai.agents.schemas import ParsedProfile, ProfileSkill
+
+        parsed = fakes.PARSED_PROFILE.model_copy(deep=True)
+        names = ["Python", "Go", "C/C++", "JavaScript", "Ansible", "Jenkins", "OpenStack", "GitLab CI"]
+        parsed.skills = [
+            ProfileSkill(name=name, category="", level="", years="") for name in names
+        ]
+        parsed.skills[4] = ProfileSkill(name="Ansible", category="DevOps", level="expert", years="8")
+        parsed.skills.extend([
+            ProfileSkill(name="  ansible  ", category="", level="", years=""),
+            ProfileSkill(name=" \n ", category="", level="", years=""),
+        ])
+        parsed.experiences[0].skills = [
+            "ANSIBLE", " GitLab   CI ", "", " \n ", "Dart", "Kotlin", "OpenCV",
+            "Flutter", "TestRail", "Linux", "  React   Native  ", "flutter",
+        ]
+        original = parsed.model_dump()
+        expected_names = names + ["Dart", "Kotlin", "OpenCV", "Flutter", "TestRail", "Linux", "React Native"]
+        body = CV_TEXT + "\nCompétences : " + ", ".join(expected_names)
+
+        with fakes.fake_llm({ParsedProfile: parsed}), fakes.eager_runs():
+            _, run = ingest_cv_document(body=body)
+
+        assert run is not None
+        self.assertEqual(run.status, RunStatus.SUCCEEDED, run.error)
+        stored = CandidateProfile.objects.get()
+        self.assertEqual(stored.skill_names, expected_names)
+        self.assertEqual(run.result["skill_count"], 15)
+        self.assertEqual(stored.skills[4], {
+            "name": "Ansible", "category": "DevOps", "level": "expert", "years": "8",
+        })
+        self.assertEqual(stored.skills[-1], {
+            "name": "React Native", "category": "", "level": "", "years": "",
+        })
+        self.assertEqual(parsed.model_dump(), original)
+
+    def test_declared_languages_and_proficiency_are_preserved_for_matching(self):
+        from jobhunt_ai.agents.qualifications import profile_context
+        from jobhunt_ai.agents.schemas import ParsedProfile, ProfileLanguage
+
+        expected = [
+            {"name": "Français", "level": "Langue maternelle"},
+            {"name": "Anglais", "level": "C1"},
+            {"name": "Néerlandais", "level": "Notions"},
+            {"name": "Allemand", "level": ""},
+        ]
+        parsed = fakes.PARSED_PROFILE.model_copy(deep=True)
+        parsed.languages = [ProfileLanguage(**language) for language in expected]
+        body = CV_TEXT.replace(
+            "Langues : français C2.",
+            "Langues : français — langue maternelle ; anglais — C1 ; "
+            "néerlandais — notions ; allemand.",
+        )
+
+        with fakes.fake_llm({ParsedProfile: parsed}), fakes.eager_runs():
+            _, run = ingest_cv_document(body=body)
+
+        assert run is not None
+        self.assertEqual(run.status, RunStatus.SUCCEEDED, run.error)
+        stored = CandidateProfile.objects.get()
+        self.assertEqual(stored.languages, expected)
+        self.assertEqual(json.loads(profile_context(stored))["langues"], expected)
+
+    def test_document_language_does_not_fill_in_unstated_language_skills(self):
+        from jobhunt_ai.agents.qualifications import profile_context
+        from jobhunt_ai.agents.schemas import ParsedProfile
+
+        parsed = fakes.PARSED_PROFILE.model_copy(deep=True)
+        parsed.languages = []
+        parsed.detected_language = "fr"
+        body = CV_TEXT.replace("Langues : français C2.", "")
+
+        with fakes.fake_llm({ParsedProfile: parsed}), fakes.eager_runs():
+            _, run = ingest_cv_document(body=body)
+
+        assert run is not None
+        self.assertEqual(run.status, RunStatus.SUCCEEDED, run.error)
+        stored = CandidateProfile.objects.get()
+        self.assertEqual(stored.language, "fr")
+        self.assertEqual(stored.languages, [])
+        self.assertNotIn("langues", json.loads(profile_context(stored)))
 
     def test_the_model_only_ever_sees_the_anonymised_text(self):
         """Le CV part au modèle sans e-mail, sans téléphone, sans nom."""

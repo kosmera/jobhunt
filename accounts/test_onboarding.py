@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from unittest import mock, skipUnless
 
+from django.apps import apps
 from django.contrib.auth.models import User
 from django.db import ProgrammingError, connection, transaction
 from django.test import TestCase, override_settings
@@ -533,7 +534,7 @@ class CVStepTests(TestCase):
         self.assertEqual(self.current_run().state, "cv")
         with with_analyzer(None):
             card = self.client.get(url("cv"))
-        self.assertContains(card, "Ton CV est rangé.")
+        self.assertContains(card, "Ton CV est enregistré.")
         self.assertContains(card, "CV Lionel Hubaut.docx")
         self.assertContains(card, "DOCX")
         self.assertContains(card, "Copilote désactivé sur cette instance")
@@ -653,6 +654,16 @@ class CVStepTests(TestCase):
         self.assertContains(response, "Fichier trop lourd : 2 Mo max.")
         self.assertFalse(Document.objects.exists())
 
+    def test_upload_hint_is_by_the_picker_and_uses_the_configured_limit(self):
+        with with_analyzer(None), self.settings(FILE_UPLOAD_MAX_MEMORY_SIZE=2 * 1024 * 1024):
+            response = self.client.get(url("cv"))
+        self.assertContains(response, "PDF (.pdf) ou DOCX (.docx) · 2 Mo max.")
+        self.assertContains(response, 'aria-describedby="id_file_helptext"')
+        self.assertContains(response, 'accept=".pdf,.docx"')
+        self.assertNotContains(response, "20 Mo max.")
+        zone = response.content.decode().split("data-dropzone>", 1)[1].split("</label>", 1)[0]
+        self.assertIn('id="id_file_helptext"', zone)
+
     def test_skip_writes_null_and_the_language_feeds_preferences_only_when_given(self):
         from accounts.onboarding.testing import docx_bytes
 
@@ -682,6 +693,259 @@ class CVStepTests(TestCase):
         self.assertEqual(response.redirect_chain[-1][0], url("cv"))
         self.assertContains(response, "Envoie un fichier, ou passe cette étape.")
         self.assertEqual(self.current_run().state, "cv")
+
+
+@skipUnless(apps.is_installed("jobhunt_ai"), "Copilot is disabled")
+@override_settings(AUTH_MODE="accounts", STORAGES=MEMORY_STORAGES, IS_SAAS_PRODUCTION=False)
+class CVAnalysisProgressTests(TestCase):
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from accounts.onboarding.testing import docx_bytes
+        from tracker.events import CVEventPublisher
+
+        self.user = make_user("Candidate", onboarded=False)
+        self.client.force_login(self.user)
+        session = self.client.session
+        session[store.SESSION_KEY] = Run(state="cv", answers={}).to_json()
+        session.save()
+        with with_analyzer(CVEventPublisher()), mock.patch("jobhunt_ai.conf.EAGER_RUNS", False):
+            response = self.client.post(url("cv"), {
+                "action": "upload", "language": "fr", "file": SimpleUploadedFile("cv.docx", docx_bytes()),
+            })
+        self.assertRedirects(response, url("cv"), fetch_redirect_response=False)
+        from jobhunt_ai.models import AgentRun
+
+        self.analysis = AgentRun.objects.get(owner=self.user)
+        self.status_url = reverse("accounts:onboarding_cv_status")
+
+    def test_free_onboarding_queues_then_extracts_details_and_stops_polling(self):
+        from jobhunt_ai.models import CandidateProfile, RunStatus
+        from jobhunt_ai.services import runner
+        from jobhunt_ai.tests.fakes import fake_llm
+
+        self.assertIsNone(profile_for(self.user).premium_until)
+        self.assertEqual(self.analysis.status, RunStatus.PENDING)
+        page = self.client.get(url("cv"))
+        self.assertContains(page, 'data-status="pending"')
+        queued = self.client.get(self.status_url)
+        self.assertContains(queued, 'data-status="pending"')
+        self.assertIn("no-store", queued.headers["Cache-Control"])
+
+        with fake_llm() as calls:
+            runner.execute(self.analysis.pk, self.user.pk)
+        self.assertEqual(len(calls), 1)
+        profile = CandidateProfile.objects.get(owner=self.user)
+        self.assertIsNotNone(profile.source_document)
+        assert profile.source_document is not None
+        self.assertEqual(profile.source_document.pk, self.analysis.params["document_id"])
+        self.assertEqual(profile.skills[0]["name"], "Ansible")
+        finished = self.client.get(self.status_url)
+        self.assertContains(finished, 'data-status="succeeded"')
+        self.assertContains(finished, "Ansible")
+        self.assertContains(finished, profile.summary, html=True)
+        self.assertContains(finished, "Expériences professionnelles")
+        self.assertContains(finished, "Ingénieur DevOps")
+        self.assertContains(finished, "Acme")
+        self.assertContains(finished, "2019")
+        self.assertContains(finished, "aujourd’hui")
+        self.assertNotContains(finished, 'data-status="pending"')
+
+    def test_experiences_preserve_dates_and_do_not_infer_current_roles(self):
+        from jobhunt_ai.models import CandidateProfile
+
+        profile = CandidateProfile.objects.create(
+            owner=self.user, source_document_id=self.analysis.params["document_id"],
+            summary="Synthèse de démonstration.",
+            experiences=[
+                {"title": "Architecte logiciel", "company": "Acme", "start": "2021-03", "end": "2025-08", "current": False},
+                {"title": "Consultant", "company": "", "start": "2018", "end": "", "current": False},
+                {"title": "Développeur", "company": "Studio", "start": "", "end": "2017", "current": False},
+                {"title": "Stage", "company": "", "start": "", "end": "", "current": False},
+                {"title": "  ", "company": "Atelier", "start": "2016", "end": "2017", "current": False},
+            ],
+        )
+        self.analysis.status = "running"
+        self.analysis.save(update_fields=["status"])
+        self.analysis.mark_succeeded({"profile_id": profile.pk})
+        for address in (url("cv"), self.status_url):
+            with self.subTest(address=address):
+                page = self.client.get(address)
+                for text in ("Architecte logiciel", "Acme", "2021-03", "2025-08", "2018", "2017",
+                             "Fin non précisée", "Début non précisé", "Dates non précisées"):
+                    self.assertContains(page, text)
+                self.assertContains(page, "Des informations sont à vérifier")
+                self.assertContains(page, '<li><strong>Consultant</strong><span>Informations absentes : entreprise, date de fin.</span></li>', html=True)
+                self.assertContains(page, '<li><strong>Développeur · Studio</strong><span>Informations absentes : date de début.</span></li>', html=True)
+                self.assertContains(page, '<li><strong>Stage</strong><span>Informations absentes : entreprise, date de début, date de fin.</span></li>', html=True)
+                self.assertContains(page, '<li><strong>Poste non précisé · Atelier</strong><span>Informations absentes : intitulé du poste.</span></li>', html=True)
+                self.assertNotContains(page, "<strong>Architecte logiciel")
+                content = page.content.decode()
+                self.assertLess(content.index('aria-labelledby="cv-review-title"'), content.index('class="cv-analysis__summary"'))
+                self.assertContains(page, 'role="status" aria-labelledby="cv-review-title"')
+                self.assertContains(page, "Compare les postes, les entreprises, les dates, les langues et leurs niveaux avec ton CV d’origine.")
+                self.assertContains(page, "des expériences oubliées ou des dates incorrectes")
+                self.assertNotContains(page, "aujourd’hui")
+
+    def test_completed_card_omits_the_experience_list_when_none_were_extracted(self):
+        from jobhunt_ai.models import CandidateProfile
+
+        profile = CandidateProfile.objects.create(
+            owner=self.user, source_document_id=self.analysis.params["document_id"], experiences=[],
+        )
+        self.analysis.status = "running"
+        self.analysis.save(update_fields=["status"])
+        self.analysis.mark_succeeded({"profile_id": profile.pk})
+        for address in (url("cv"), self.status_url):
+            with self.subTest(address=address):
+                page = self.client.get(address)
+                self.assertNotContains(page, "Expériences professionnelles")
+                self.assertContains(page, "Des informations sont à vérifier")
+                self.assertContains(page, "Aucune expérience professionnelle n’a été extraite.")
+                self.assertContains(page, "Si ton CV contient des expériences professionnelles, elles peuvent avoir été omises.")
+                self.assertContains(page, "Compare les postes, les entreprises, les dates, les langues et leurs niveaux avec ton CV d’origine.")
+                self.assertNotContains(page, 'class="cv-analysis__gaps"')
+
+    def test_complete_and_current_experiences_still_prompt_review_for_omissions(self):
+        from jobhunt_ai.models import CandidateProfile
+
+        profile = CandidateProfile.objects.create(
+            owner=self.user, source_document_id=self.analysis.params["document_id"],
+        )
+        self.analysis.status = "running"
+        self.analysis.save(update_fields=["status"])
+        self.analysis.mark_succeeded({"profile_id": profile.pk})
+        for current, end in ((True, ""), (False, "2024-06")):
+            profile.experiences = [{
+                "title": "QA Engineer", "company": "Exemple", "start": "2020-01", "end": end, "current": current,
+            }]
+            profile.save(update_fields=["experiences"])
+            for address in (url("cv"), self.status_url):
+                with self.subTest(current=current, address=address):
+                    page = self.client.get(address)
+                    self.assertContains(page, "Ton CV a été analysé.")
+                    self.assertNotContains(page, "Ton parcours est prêt.")
+                    self.assertContains(page, "Vérifie les informations extraites")
+                    self.assertContains(page, "Compare les postes, les entreprises, les dates, les langues et leurs niveaux avec ton CV d’origine.")
+                    self.assertContains(page, "Une mise en page complexe peut entraîner des expériences oubliées ou des dates incorrectes")
+                    self.assertContains(page, "même si les lignes affichées semblent complètes.")
+                    self.assertNotContains(page, "Des informations sont à vérifier")
+                    self.assertNotContains(page, "Informations absentes")
+                    self.assertNotContains(page, 'class="cv-analysis__gaps"')
+                    self.assertNotContains(page, "Fin non précisée")
+                    self.assertContains(page, "aujourd’hui" if current else end)
+
+    def complete_with_languages(self, languages):
+        from jobhunt_ai.models import CandidateProfile
+
+        profile = CandidateProfile.objects.create(
+            owner=self.user, source_document_id=self.analysis.params["document_id"], languages=languages,
+        )
+        self.analysis.status = "running"
+        self.analysis.save(update_fields=["status"])
+        self.analysis.mark_succeeded({"profile_id": profile.pk})
+        return profile
+
+    def test_extracted_languages_show_the_saved_proficiency_on_page_and_polled_card(self):
+        self.complete_with_languages([
+            {"name": "Français", "level": "langue maternelle"},
+            {"name": "Anglais", "level": "C1"},
+            {"name": "Néerlandais", "level": "notions"},
+        ])
+        for address in (url("cv"), self.status_url):
+            with self.subTest(address=address):
+                page = self.client.get(address)
+                self.assertContains(page, '<h3 class="cv-analysis__subtitle" id="cv-languages-title">Langues</h3>', html=True)
+                self.assertContains(page, 'aria-labelledby="cv-languages-title"')
+                for name, level in (("Français", "langue maternelle"), ("Anglais", "C1"), ("Néerlandais", "notions")):
+                    self.assertContains(page, f'<div><dt>{name}</dt><dd>{level}</dd></div>', html=True)
+                self.assertContains(page, "3 langues")
+                self.assertContains(page, "les langues et leurs niveaux avec ton CV d’origine")
+                self.assertNotContains(page, "Niveau non précisé")
+                self.assertNotContains(page, "Aucune langue identifiée dans ce CV.")
+
+    def test_language_section_distinguishes_empty_extraction_and_unspecified_levels(self):
+        profile = self.complete_with_languages([])
+        for address in (url("cv"), self.status_url):
+            with self.subTest(empty=True, address=address):
+                page = self.client.get(address)
+                self.assertContains(page, "Aucune langue identifiée dans ce CV.")
+                self.assertContains(page, "0 langues")
+                self.assertNotContains(page, 'class="cv-analysis__languages"')
+        profile.languages = [
+            {"name": "Allemand"}, {"name": "Italien", "level": ""}, {"name": "Portugais", "level": " \t "},
+        ]
+        profile.save(update_fields=["languages"])
+        for address in (url("cv"), self.status_url):
+            with self.subTest(empty=False, address=address):
+                page = self.client.get(address)
+                for name in ("Allemand", "Italien", "Portugais"):
+                    self.assertContains(page, f'<div><dt>{name}</dt><dd>Niveau non précisé</dd></div>', html=True)
+                self.assertContains(page, "Niveau non précisé", count=3)
+                self.assertNotContains(page, "Aucune langue identifiée dans ce CV.")
+
+    def test_extracted_language_names_and_levels_are_escaped(self):
+        from django.utils.html import escape
+
+        name = '<script>alert("langue")</script>'
+        level = '<img src=x onerror="alert(1)">'
+        self.complete_with_languages([{"name": name, "level": level}])
+        for address in (url("cv"), self.status_url):
+            with self.subTest(address=address):
+                page = self.client.get(address)
+                self.assertContains(page, escape(name))
+                self.assertContains(page, escape(level))
+                self.assertNotContains(page, name)
+                self.assertNotContains(page, level)
+                self.assertContains(page, "1 langue")
+
+    def test_processing_phase_and_failure_are_honest_without_exposing_provider_errors(self):
+        from jobhunt_ai.models import RunStatus
+
+        self.analysis.status = RunStatus.RUNNING
+        self.analysis.phase = "Extraction des compétences et des expériences"
+        self.analysis.save(update_fields=["status", "phase"])
+        processing = self.client.get(self.status_url)
+        self.assertContains(processing, 'data-status="running"')
+        self.assertContains(processing, self.analysis.phase)
+        self.analysis.mark_failed("private-provider-error-with-document-text")
+        failed = self.client.get(self.status_url)
+        self.assertContains(failed, 'data-status="failed"')
+        self.assertNotContains(failed, "private-provider-error")
+
+    def test_expired_work_is_reconciled_during_polling(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from jobhunt_ai.models import RunStatus
+
+        self.analysis.deadline_at = timezone.now() - timedelta(seconds=1)
+        self.analysis.save(update_fields=["deadline_at"])
+        response = self.client.get(self.status_url)
+        self.assertContains(response, 'data-status="failed"')
+        self.analysis.refresh_from_db()
+        self.assertEqual(self.analysis.status, RunStatus.FAILED)
+
+    def test_status_is_scoped_to_the_session_document_and_signed_in_owner(self):
+        from jobhunt_ai.models import AgentRun, RunKind
+        from tracker.models import Document, DocumentKind
+
+        other = make_user("Other", onboarded=False)
+        document = Document.objects.create(owner=other, kind=DocumentKind.CV, label="private CV")
+        AgentRun.objects.create(owner=other, kind=RunKind.PARSE_CV, params={"document_id": document.pk})
+        self.assertEqual(self.client.get(self.status_url, {"document": document.pk}).status_code, 409)
+        session = self.client.session
+        session[store.SESSION_KEY] = Run(state="cv", answers={"cv_document_id": document.pk}).to_json()
+        session.save()
+        self.assertEqual(self.client.get(self.status_url).status_code, 404)
+        self.client.logout()
+        response = self.client.get(self.status_url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("accounts:login"), response.headers["Location"])
+
+    def test_polling_does_not_change_onboarding_answers_and_requires_get(self):
+        previous = dict(self.client.session[store.SESSION_KEY])
+        self.client.get(self.status_url)
+        self.assertEqual(self.client.session[store.SESSION_KEY], previous)
+        self.assertEqual(self.client.post(self.status_url).status_code, 405)
 
 
 # ---------------------------------------------------------------------------

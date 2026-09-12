@@ -22,6 +22,7 @@ from django.http import Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
+from django.views.decorators.cache import never_cache
 
 from accounts import conf
 from accounts.forms import SignupForm
@@ -122,6 +123,24 @@ def onboarding(request):
     if isinstance(prepared, HttpResponse):
         return prepared
     return redirect(step_url(machine.current(prepared.run, prepared.ctx)))
+
+
+@onboarding_not_required
+@never_cache
+@require_http_methods(["GET"])
+def onboarding_cv_status(request):
+    """Poll only the signed-in visitor's current onboarding CV, without writes to the session."""
+    run = store.load(request)
+    if run is None:
+        raise Http404
+    ctx = services.build_context(request.user)
+    card = services.cv_card(request.user, run.answers, ctx)
+    if card is None or card.analysis is None:
+        raise Http404
+    requested_document = request.GET.get("document")
+    if requested_document is not None and _int_or_none(requested_document) != card.document.pk:
+        return HttpResponse(status=409)
+    return render(request, "accounts/onboarding/partials/cv_analysis.html", {"card": card, "analysis": card.analysis})
 
 
 @login_not_required

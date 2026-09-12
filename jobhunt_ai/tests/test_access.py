@@ -1,4 +1,4 @@
-"""Premium gates cover web, signals, durable submission and later workers."""
+"""Free CV parsing and premium gates cover submission and later workers."""
 
 from datetime import timedelta
 from unittest.mock import Mock, patch
@@ -16,6 +16,7 @@ from jobhunt_ai.access import has_copilot_access
 from jobhunt_ai.models import AgentRun, CandidateProfile, OfferLead, RunKind, RunStatus
 from jobhunt_ai.services import llm, runner
 from jobhunt_ai.tests.fakes import PremiumTestCase, REMOTE_STORAGES
+from jobhunt_ai.tests import fakes
 from jobhunt_ai.tests.test_agents import ingest_cv_document, make_application
 
 
@@ -52,9 +53,9 @@ class PremiumAccessTests(PremiumTestCase):
         run = AgentRun.objects.create(owner=self.user, kind=RunKind.SCOUT)
         self.revoke()
         for route, args in (
-            ("copilot", []), ("profile", []), ("leads", []),
+            ("copilot", []), ("leads", []),
             ("run_status", [run.pk]), ("evaluate", [application.pk]),
-            ("parse_cv", []), ("generate_cv", [application.pk]), ("scout_start", []),
+            ("generate_cv", [application.pk]), ("scout_start", []),
             ("api_scout_start", []), ("api_run_status", [run.pk]),
             ("api_run_leads", [run.pk]),
         ):
@@ -73,21 +74,84 @@ class PremiumAccessTests(PremiumTestCase):
         self.assertNotContains(response, 'hx-post="' + reverse("jobhunt_ai:evaluate", args=[application.pk]))
         self.assertNotIn("ai_leads", response.context["nav_counters"])
 
-    def test_free_cv_is_stored_without_queuing_ai_then_paid_upload_queues(self):
+    def test_free_cv_is_stored_and_queues_ai_without_calling_provider_in_request(self):
         self.revoke()
         with patch.object(llm, "parse_structured") as provider:
             intake, run = ingest_cv_document(self.user)
             self.assertIsNotNone(intake.document.pk)
-            self.assertIsNone(run)
-            self.assertFalse(AgentRun.objects.exists())
-            self.assertFalse(OrmQ.objects.exists())
-            Profile.objects.filter(user=self.user).update(
-                premium_until=timezone.now() + timedelta(days=30)
-            )
-            _, run = ingest_cv_document(self.user)
             self.assertIsNotNone(run)
+            self.assertEqual(run.kind, RunKind.PARSE_CV)
+            self.assertEqual(run.status, RunStatus.PENDING)
             self.assertEqual(OrmQ.objects.count(), 1)
             provider.assert_not_called()
+
+    def test_free_queued_cv_extracts_a_candidate_profile(self):
+        self.revoke()
+        intake, run = ingest_cv_document(self.user)
+        with fakes.fake_llm():
+            runner.execute(run.pk, self.user.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, RunStatus.SUCCEEDED, run.error)
+        profile = CandidateProfile.objects.get(owner=self.user, source_document=intake.document)
+        self.assertIn("Ansible", profile.skill_names)
+        self.assertEqual(len(profile.experiences), 1)
+        self.assertEqual(len(profile.education), 1)
+
+    def test_free_account_can_submit_and_poll_cv_but_not_another_accounts_run(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from jobhunt_ai.tests.test_agents import CV_TEXT
+
+        self.revoke()
+        response = self.client.post(
+            reverse("jobhunt_ai:parse_cv"),
+            {"file": SimpleUploadedFile("cv.txt", CV_TEXT.encode("utf-8"))},
+        )
+        self.assertEqual(response.status_code, 200)
+        run = AgentRun.objects.get()
+        other = AgentRun.objects.create(owner=make_user(), kind=RunKind.PARSE_CV)
+        for route in ("run_status", "api_run_status"):
+            with self.subTest(route=route):
+                self.assertEqual(
+                    self.client.get(reverse(f"jobhunt_ai:{route}", args=[run.pk])).status_code,
+                    200,
+                )
+                self.assertEqual(
+                    self.client.get(reverse(f"jobhunt_ai:{route}", args=[other.pk])).status_code,
+                    404,
+                )
+
+    def test_inactive_account_cannot_launch_or_execute_free_cv_parsing(self):
+        self.revoke()
+        _, run = ingest_cv_document(self.user)
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        with self.assertRaises(PermissionDenied):
+            runner.launch(RunKind.PARSE_CV, owner=self.user)
+        with patch.object(runner, "_dispatch") as dispatch:
+            runner.execute(run.pk, self.user.pk)
+        dispatch.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, RunStatus.FAILED)
+
+    def test_free_account_can_view_and_manage_only_its_extracted_profiles(self):
+        self.revoke()
+        mine = CandidateProfile.objects.create(owner=self.user, label="My extracted CV")
+        theirs = CandidateProfile.objects.create(owner=make_user(), label="Another account's CV")
+        response = self.client.get(reverse("jobhunt_ai:profile"), {"profil": theirs.pk})
+        self.assertContains(response, mine.label)
+        self.assertNotContains(response, theirs.label)
+        documents = self.client.get(reverse("tracker:document_library"))
+        self.assertContains(documents, reverse("jobhunt_ai:profile"))
+        for route in ("profile_set_primary", "profile_delete"):
+            with self.subTest(route=route):
+                self.assertEqual(self.client.post(
+                    reverse(f"jobhunt_ai:{route}", args=[theirs.pk]),
+                ).status_code, 404)
+                self.assertEqual(self.client.post(
+                    reverse(f"jobhunt_ai:{route}", args=[mine.pk]),
+                ).status_code, 204)
+        self.assertFalse(CandidateProfile.objects.filter(pk=mine.pk).exists())
+        self.assertTrue(CandidateProfile.objects.filter(pk=theirs.pk).exists())
 
     def test_direct_submission_cannot_bypass_premium_with_related_objects(self):
         application = make_application(owner=self.user)

@@ -11,6 +11,7 @@ urlpatterns = [
     # The questionnaire: its entry keeps the name the middleware and the landing
     # page reverse; every screen has its own French segment under it.
     path("bienvenue/", onboarding_views.onboarding, name="onboarding"),
+    path("bienvenue/cv/analyse/", onboarding_views.onboarding_cv_status, name="onboarding_cv_status"),
     path("bienvenue/<slug:slug>/", onboarding_views.onboarding_step, name="onboarding_step"),
     path("connexion/", views.login_view, name="login"),
     path("inscription/", views.signup, name="signup"),

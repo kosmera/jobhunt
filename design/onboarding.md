@@ -30,8 +30,20 @@ figure kept — « chaque semaine sans poste, c'est environ X € » — is comp
 from the visitor's own minimum salary and hidden when the salary was skipped.
 The CV screen shows facts only: file, size, readable characters, what was
 masked before anything left the library, and whether an extension received
-the anonymised text; no percentage, no parsed sections the core cannot
-verify.
+the anonymised text. CV extraction is free for active accounts. When the AI
+extension is installed, the card polls its owned document's durable run and
+shows its real phase, then the saved summary, skills, spoken languages with
+their stated proficiency, experience/education counts and the extracted roles,
+employers and date ranges. Missing language levels are explicitly unspecified;
+the document's language never implies proficiency. Missing dates stay
+explicitly unspecified. A review notice precedes the summary and lists missing
+role titles, employers and dates (an ongoing role needs no end date). It always
+asks users to compare the results with their CV: complex layouts can omit whole
+roles or assign incorrect dates even when every displayed field is filled.
+This notice also applies to existing results without another AI call.
+Only the upload has a measured percentage; processing is indeterminate.
+Failed or expired runs keep the file and offer a replacement; unavailable
+polling offers a refresh without resubmitting the upload.
 
 ## The machine
 
@@ -96,6 +108,9 @@ needs a job soon), `SearchProfile` (a new one-to-one row, RLS-registered) —
 then `onboarded_at`, the session key cleared, the dashboard with the welcome
 flash. The CV is filed immediately as the library's base CV through
 `tracker.services.ingest_cv`, exactly as the documents page does.
+`/bienvenue/cv/analyse/` returns the progress fragment for the signed-in
+visitor's session CV, with no caching or session mutation. An optional
+document identifier rejects polling from a tab showing an older upload.
 
 Every answer is editable afterwards: the settings page (`/reglages/`) has a
 « Ce que tu cherches » section — one form over the whole `SearchProfile`,

@@ -1431,11 +1431,12 @@ class CopilotChromeTests(TestCase):
 
     @skipUnless(_copilot_installed(), "le copilote n'est pas installé")
     def test_the_leads_badge_only_counts_for_a_premium_account(self):
+        Profile.objects.filter(user=self.user).update(subscription_level="free")
         response = self.client.get(reverse("tracker:dashboard"))
         self.assertNotIn("ai_leads", response.context["nav_counters"])
 
         Profile.objects.filter(user=self.user).update(
-            premium_until=timezone.now() + dt.timedelta(days=30)
+            subscription_level="premium", premium_until=timezone.now() + dt.timedelta(days=30)
         )
         response = self.client.get(reverse("tracker:dashboard"))
         self.assertEqual(response.context["nav_counters"].get("ai_leads"), 0)
@@ -2394,16 +2395,18 @@ class NullOrderingTests(TestCase):
 
 @override_settings(MEDIA_ROOT=MEDIA)
 class QueryBudgetTests(OwnedTestCase):
-    """Upper bounds calibrated on today's counts, so an N+1 shows up.
+    """Free-account upper bounds, so an N+1 shows up.
 
     Transaction bookkeeping (savepoints, which a ``TestCase`` turns every
     ``atomic()`` into) is not a data query and is left out of the count.
     """
 
     BOOKKEEPING = ("SAVEPOINT", "RELEASE SAVEPOINT", "ROLLBACK TO SAVEPOINT")
+    QUERY_LIMITS = (16, 20, 12)
 
     def setUp(self):
         super().setUp()
+        Profile.objects.filter(user=self.user).update(subscription_level="free")
         self.application = make_application(company_name="Acme", status=Status.TO_APPLY)
         for index in range(3):
             make_document(
@@ -2433,18 +2436,28 @@ class QueryBudgetTests(OwnedTestCase):
 
     def test_application_detail(self):
         url = reverse("tracker:application_detail", args=[self.application.pk])
-        self.assertLessEqual(self.count_queries(lambda: self.client.get(url)), 16)
+        self.assertLessEqual(self.count_queries(lambda: self.client.get(url)), self.QUERY_LIMITS[0])
 
     def test_dashboard(self):
         url = reverse("tracker:dashboard")
-        self.assertLessEqual(self.count_queries(lambda: self.client.get(url)), 20)
+        self.assertLessEqual(self.count_queries(lambda: self.client.get(url)), self.QUERY_LIMITS[1])
 
     def test_set_status(self):
         url = reverse("tracker:set_status", args=[self.application.pk])
         post = lambda: self.client.post(  # noqa: E731
             url, {"status": Status.SENT, "source": "detail"}, HTTP_HX_REQUEST="true"
         )
-        self.assertLessEqual(self.count_queries(post), 12)
+        self.assertLessEqual(self.count_queries(post), self.QUERY_LIMITS[2])
+
+
+class LocalPremiumQueryBudgetTests(QueryBudgetTests):
+    """Premium also loads the leads badge and the application panel's AI data."""
+
+    QUERY_LIMITS = (18, 21, 13)
+
+    def setUp(self):
+        super().setUp()
+        Profile.objects.filter(user=self.user).update(subscription_level="automatic")
 
 
 class AnonymizeTests(SimpleTestCase):

@@ -8,7 +8,7 @@ Two modes, chosen by ``settings.AUTH_MODE``:
 - ``accounts`` — a shared deployment. Sign-in and sign-up forms, passwords,
   the usual.
 
-Everything mode-specific goes through these two helpers so the rule lives in
+Everything mode-specific goes through these helpers so the rule lives in
 one place.
 """
 
@@ -22,6 +22,11 @@ ACCOUNTS = "accounts"
 
 def is_local() -> bool:
     return settings.AUTH_MODE == LOCAL
+
+
+def premium_by_default() -> bool:
+    """Trusted local installations include Premium, outside commercial SaaS."""
+    return is_local() and not settings.IS_SAAS_PRODUCTION
 
 
 def signup_open() -> bool:

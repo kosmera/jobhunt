@@ -62,7 +62,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from accounts.models import Profile
+from accounts.models import Profile, SubscriptionLevel
 from tracker.events import CVEventPublisher
 
 assert apps.is_installed("jobhunt_ai")
@@ -74,9 +74,14 @@ assert response.status_code == 200
 assert response.context["copilot_enabled"] is True
 assert copilot in response.content.decode()
 assert [item["label"] for item in response.context["nav_items"]][-1] == "Copilote"
-# Free account: the page answers 402; a current paid period opens it.
+# Local accounts include Premium by default. An explicit downgrade closes it.
+assert client.get(copilot).status_code == 200
+Profile.objects.filter(user=user).update(subscription_level=SubscriptionLevel.FREE)
 assert client.get(copilot).status_code == 402
-Profile.objects.filter(user=user).update(premium_until=timezone.now() + timedelta(days=30))
+Profile.objects.filter(user=user).update(
+    subscription_level=SubscriptionLevel.PREMIUM,
+    premium_until=timezone.now() + timedelta(days=30),
+)
 assert client.get(copilot).status_code == 200
 assert isinstance(cv_analyzer(), CVEventPublisher)
 """

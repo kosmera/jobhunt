@@ -1,19 +1,21 @@
 from django.contrib import admin
 
-from accounts import conf
 from accounts.models import Preferences, Profile, SearchProfile
 
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ["user", "display_name", "location", "onboarded_at", "premium_until"]
+    list_display = [
+        "user", "display_name", "location", "onboarded_at",
+        "subscription_level", "premium_active", "premium_until",
+    ]
+    list_filter = ["subscription_level"]
     search_fields = ["user__username", "user__email", "display_name"]
     autocomplete_fields = ["user"]
 
-    def get_readonly_fields(self, request, obj=None):
-        # Managing a local installation is not authority to grant a paid
-        # subscription. The hosted billing administrator keeps this control.
-        return ["premium_until"] if conf.is_local() else []
+    @admin.display(boolean=True, description="Premium actif")
+    def premium_active(self, obj):
+        return obj.user.is_active and obj.is_premium
 
 
 @admin.register(Preferences)

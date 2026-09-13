@@ -716,24 +716,37 @@ JSON (`/copilote/api/…`), les délais et la reprise après interruption.
 
 ### Accès Premium
 
-Le copilote s'ouvre à un compte actif dont `accounts.Profile.premium_until`
-est une date future — `accounts.services.has_premium(user)` relit la base à
-chaque requête, à la mise en file et avant chaque étape d'une tâche ;
-`profile.is_premium` en est le miroir sur une instance déjà chargée, pour les
-gabarits. Aucune clé de licence ni clé API n'est demandée aux utilisateurs ;
-activer `DEBUG` ou être administrateur de l'installation ne donne aucun droit.
+En mode local auto-hébergé (`JOBHUNT_AUTH_MODE=local`, `IS_SAAS_PRODUCTION=false`),
+les comptes actifs ont **Premium par défaut**, y compris les profils existants
+sans date d'expiration. Ce défaut ne dépend ni de `DEBUG`, ni du statut
+d'administrateur, et ne crée pas de période payée artificielle en base.
+
+Dans **Administration → Profils**, le **Niveau d'abonnement** et **Premium
+jusqu'au** sont modifiables en mode local comme en mode `accounts` :
+
+- **Automatique** (défaut) : une date future accorde Premium ; sans date,
+  Premium est inclus en mode local hors SaaS et le compte est gratuit ailleurs.
+- **Gratuit** : désactive Premium, même si une date future est renseignée.
+- **Premium** : accorde Premium jusqu'à la date renseignée, ou sans limite
+  de durée si elle est vide.
+
+Toute date atteinte ou dépassée met fin à Premium, y compris en local. Les
+périodes payées existantes conservent leur date. La colonne **Premium actif**
+indique l'accès effectif. Les paramètres du compte accessibles à l'utilisateur
+ne permettent pas de modifier ces droits.
+
+`accounts.services.has_premium(user)` relit le niveau, la date et l'état actif
+du compte à chaque contrôle, à la mise en file et avant chaque étape d'une tâche ;
+`profile.is_premium` en est le miroir sur une instance déjà chargée.
+Aucune clé de licence ni clé API n'est demandée aux utilisateurs.
 Les pages Premium du copilote répondent 402 à un compte gratuit, un fragment
 HTMX le renvoie vers `/copilote/`. L'analyse de CV et le suivi de cette analyse
 sont accessibles aux comptes gratuits actifs, depuis les documents comme
 pendant le parcours Bienvenue. Les autres opérations gardent leur contrôle
 d'accès ; les quotas de l'instance commerciale restent applicables.
 
-En attendant Stripe, un administrateur du service en mode `accounts` renseigne
-la fin de période payée dans **Administration → Profils → Premium jusqu'au** ;
-en mode `local`, cette date est en lecture seule. Le futur backend de paiement
-maintiendra cette date après confirmation du paiement ; aucun checkout ni
-webhook n'est encore implémenté, et les comptes existants restent gratuits
-tant qu'aucun droit ne leur est attribué.
+En attendant Stripe, les abonnements sont gérés dans cette administration ;
+aucun checkout ni webhook de paiement n'est encore implémenté.
 
 Une instance commerciale (`IS_SAAS_PRODUCTION=true`) ouvre le copilote à tout
 compte et le mesure par quotas de requêtes (gratuit/payant), les appels

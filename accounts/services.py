@@ -83,17 +83,17 @@ def search_profile_or_blank(user) -> SearchProfile:
 
 
 def has_premium(user) -> bool:
-    """Read the current paid entitlement; never trust a cached profile or form.
+    """Read current Premium access; never trust a cached profile or form.
 
-    Billing will maintain premium_until after confirmed payments. Until then,
-    service administrators in accounts mode can manage it on the profile.
-    No billing I/O occurs here; missing or expired entitlement denies access.
+    The admin-managed level and expiration override the deployment default.
+    No billing I/O occurs here; missing or disabled accounts have no access.
     """
     if not user or not user.is_authenticated or not user.pk:
         return False
-    return Profile.objects.filter(
-        user_id=user.pk, user__is_active=True, premium_until__gt=timezone.now()
-    ).exists()
+    profile = Profile.objects.only("subscription_level", "premium_until").filter(
+        user_id=user.pk, user__is_active=True,
+    ).first()
+    return bool(profile and profile.is_premium)
 
 
 def ensure_local_admin(user) -> None:

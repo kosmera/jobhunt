@@ -28,6 +28,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
+from accounts import conf
+
 # Cycle-free: ``tracker.models`` imports nothing from ``accounts`` at module
 # level (the one ``accounts.services`` import sits inside a method).
 from tracker.models import WorkMode
@@ -46,6 +48,12 @@ def default_follow_up_days() -> int:
 
 def default_search_radius_km() -> int:
     return settings.DEFAULT_SEARCH_RADIUS_KM
+
+
+class SubscriptionLevel(models.TextChoices):
+    AUTOMATIC = "automatic", "Automatique"
+    FREE = "free", "Gratuit"
+    PREMIUM = "premium", "Premium"
 
 
 class Profile(models.Model):
@@ -73,9 +81,16 @@ class Profile(models.Model):
         "et l'anonymisation le masque partout ailleurs.",
     )
     onboarded_at = models.DateTimeField("profil complété le", null=True, blank=True)
+    subscription_level = models.CharField(
+        "niveau d'abonnement", max_length=12, choices=SubscriptionLevel.choices,
+        default=SubscriptionLevel.AUTOMATIC,
+        help_text="Automatique : Premium en mode local hors SaaS, sinon gratuit sans période payée. "
+        "Gratuit désactive Premium ; Premium l'active jusqu'à la date éventuelle ci-dessous.",
+    )
     premium_until = models.DateTimeField(
         "premium jusqu'au", null=True, blank=True,
-        help_text="Fin de la période payée. Sans date ou après expiration, le compte est gratuit.",
+        help_text="Date limite de l'accès Premium. Après expiration, le compte est gratuit. "
+        "Sans date, le niveau choisi s'applique sans limite de durée.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -93,14 +108,19 @@ class Profile(models.Model):
 
     @property
     def is_premium(self) -> bool:
-        """Whether the paid period is running, as read on this instance.
+        """Effective subscription, as read on this instance.
 
-        Mirrors ``premium_until`` (the single source of truth, admin-managed)
-        for templates and code that already hold the profile. Access
-        decisions go through ``accounts.services.has_premium(user)``, which
-        reads the database afresh and also requires an active account.
+        Access decisions use ``accounts.services.has_premium(user)`` to read
+        the profile afresh and also require an active account. Existing paid
+        periods keep their meaning; local defaults need no database grant.
         """
-        return self.premium_until is not None and self.premium_until > timezone.now()
+        if self.subscription_level == SubscriptionLevel.FREE:
+            return False
+        if self.premium_until is not None:
+            return self.premium_until > timezone.now()
+        return self.subscription_level == SubscriptionLevel.PREMIUM or (
+            self.subscription_level == SubscriptionLevel.AUTOMATIC and conf.premium_by_default()
+        )
 
     @property
     def initials(self) -> str:

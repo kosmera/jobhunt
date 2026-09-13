@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django_q.models import OrmQ
 
-from accounts.models import Profile
+from accounts.models import Profile, SubscriptionLevel
 from accounts.testing import make_user
 from jobhunt_ai.access import has_copilot_access
 from jobhunt_ai.models import AgentRun, CandidateProfile, OfferLead, RunKind, RunStatus
@@ -20,13 +20,14 @@ from jobhunt_ai.tests import fakes
 from jobhunt_ai.tests.test_agents import ingest_cv_document, make_application
 
 
-@override_settings(STORAGES=REMOTE_STORAGES)
+@override_settings(STORAGES=REMOTE_STORAGES, IS_SAAS_PRODUCTION=False)
 class PremiumAccessTests(PremiumTestCase):
     def revoke(self):
-        Profile.objects.filter(user=self.user).update(premium_until=None)
+        Profile.objects.filter(user=self.user).update(subscription_level=SubscriptionLevel.FREE)
 
+    @override_settings(AUTH_MODE="accounts")
     def test_payment_enables_copilot_in_the_same_session_without_a_key(self):
-        self.revoke()
+        Profile.objects.filter(user=self.user).update(premium_until=None)
         with override_settings(DEBUG=False, JOBHUNT_AI_API_KEY=""):
             self.assertEqual(self.client.get(reverse("jobhunt_ai:copilot")).status_code, 402)
             Profile.objects.filter(user=self.user).update(
@@ -36,17 +37,21 @@ class PremiumAccessTests(PremiumTestCase):
             Profile.objects.filter(user=self.user).update(premium_until=timezone.now())
             self.assertEqual(self.client.get(reverse("jobhunt_ai:copilot")).status_code, 402)
 
-    def test_local_administrator_can_manage_core_but_has_no_copilot_access(self):
-        self.revoke()
+    def test_local_default_opens_copilot_and_allows_queued_work_without_a_paid_period(self):
+        Profile.objects.filter(user=self.user).update(premium_until=None)
         self.assertEqual(self.client.get(reverse("admin:index")).status_code, 200)
         self.user.refresh_from_db()
         self.assertTrue(self.user.is_staff)
         self.assertTrue(self.user.is_superuser)
-        self.assertFalse(has_copilot_access(self.user))
-        self.assertEqual(self.client.get(reverse("jobhunt_ai:copilot")).status_code, 402)
-        with self.assertRaises(PermissionDenied):
-            runner.launch(RunKind.SCOUT, owner=self.user)
-        self.assertFalse(OrmQ.objects.exists())
+        self.assertTrue(has_copilot_access(self.user))
+        self.assertEqual(self.client.get(reverse("jobhunt_ai:copilot")).status_code, 200)
+        run = runner.launch(RunKind.SCOUT, owner=self.user)
+        self.assertTrue(OrmQ.objects.exists())
+        with patch.object(runner, "_dispatch", return_value={}) as dispatch:
+            runner.execute(run.pk, self.user.pk)
+        dispatch.assert_called_once()
+        run.refresh_from_db()
+        self.assertEqual(run.status, RunStatus.SUCCEEDED, run.error)
 
     def test_free_account_cannot_submit_or_read_existing_ai_data(self):
         application = make_application(owner=self.user)
@@ -178,6 +183,7 @@ class PremiumAccessTests(PremiumTestCase):
         self.assertEqual(run.status, RunStatus.FAILED)
         self.assertIn("Premium", run.error)
 
+    @override_settings(AUTH_MODE="accounts")
     def test_a_fresh_account_is_denied_and_the_profile_flag_follows_premium_until(self):
         user = make_user()
         self.assertFalse(has_copilot_access(user))

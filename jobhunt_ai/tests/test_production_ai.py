@@ -238,6 +238,7 @@ class ProductionQuotaTests(TestCase):
             self.call()
         self.assertEqual(self.provider.parse_structured.call_count, 1)
 
+    @override_settings(AUTH_MODE="accounts")
     def test_freemium_access_is_production_only(self):
         self.assertTrue(has_copilot_access(self.user))
         with override_settings(IS_SAAS_PRODUCTION=False):

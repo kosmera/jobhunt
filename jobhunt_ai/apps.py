@@ -25,9 +25,5 @@ class JobHuntAIConfig(AppConfig):
         for label in ("MatchReport", "GeneratedCV"):
             rls.register(f"jobhunt_ai.{label}", via="application")
         rls.register("jobhunt_ai.ScoutTarget", via="run")
-        # La file Django-Q2 n'appartient à personne : elle ne porte que des
-        # identifiants d'exécution, jamais de texte de CV.
-        for label in ("OrmQ", "Task", "Schedule"):
-            rls.exempt(f"django_q.{label}")
         signals = import_module("jobhunt_ai.signals")
         signals.register_receivers()

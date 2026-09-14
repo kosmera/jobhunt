@@ -45,6 +45,38 @@ Only the upload has a measured percentage; processing is indeterminate.
 Failed or expired runs keep the file and offer a replacement; unavailable
 polling offers a refresh without resubmitting the upload.
 
+### Launch interest — September 14, 2026
+
+In accounts mode, the final `/bienvenue/plan/` screen presents the free and
+planned Premium offers, then an optional launch-email signup. Local mode
+keeps its existing action plan. Joining or skipping the list in accounts mode
+opens the free workspace; choosing Premium records interest without buying
+or enabling a subscription.
+
+The two equal-width cards use the app's existing palette (`--paper` #f7faf5,
+`--card` #ffffff, `--heading` #153f36, `--ink` #243e35, `--accent` #287253)
+and their dark-theme equivalents. Archivo carries the choices and prices;
+Newsreader carries the introductory and explanatory text. Their defining
+detail is the honest availability label: « Disponible maintenant » beside
+« En préparation ». There is no recommended-plan badge or preselection.
+The view supplies the agreed recurring Premium price: « 24,90 € / mois ».
+
+Native radio buttons retain keyboard navigation, card-level focus rings,
+and a written selected state. Email is prefilled but editable independently
+of the account login. The launch-email consent is unchecked and explicit;
+the second button continues without that consent. Both cards stack on small
+screens. Actions remain in the document flow so they never obscure the
+consent, errors, or the free-access explanation. The form and skip action
+work without JavaScript; server errors are linked to the relevant controls.
+
+Verified against an isolated preview at 1280 px and 375 px: dark and light
+themes, no horizontal overflow, invalid submission, plan selection, explicit
+consent, edited notification email, and successful return to the dashboard.
+The new flow and persistence are covered by 20 tests, including CSRF, stale
+sessions, retries, cross-account submissions, and unchanged Premium access.
+The complete SQLite suite passes (797 tests, 40 skipped); PostgreSQL was not
+available locally for this change.
+
 ## The machine
 
 `accounts/onboarding/machine.py` is a finite state machine with no Django

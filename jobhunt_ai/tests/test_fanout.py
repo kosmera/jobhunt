@@ -54,11 +54,11 @@ class FanoutTests(FanoutFixtures, TestCase):
         self.set_up_fanout()
 
     def test_revoked_premium_stops_scraping_and_already_queued_analysis(self):
-        from accounts.models import Profile
+        from accounts.models import Profile, SubscriptionLevel
 
         first, second = self.dispatch()
         self.scrape(first)
-        Profile.objects.filter(user=self.owner).update(premium_until=None)
+        Profile.objects.filter(user=self.owner).update(subscription_level=SubscriptionLevel.FREE)
         with mock.patch("jobhunt_ai.scraping.sources.fetch_page") as scrape:
             with mock.patch("jobhunt_ai.agents.scout.analyze_page") as analyze:
                 fanout.scrape_target(str(second.pk), self.owner.pk)

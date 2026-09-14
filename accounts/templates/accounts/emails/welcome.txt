@@ -1,0 +1,14 @@
+Bienvenue sur tonjobidéal !
+
+Ton intérêt pour la formule {{ plan }} est bien enregistré. Merci de faire partie des premiers inscrits.
+
+Ton espace gratuit est prêt : tu peux déjà y organiser tes candidatures et garder tes documents au même endroit.
+
+Retrouve ton espace : {{ public_url }}/
+
+La formule Premium est en préparation, au tarif prévu de 24,90 € par mois. Nous te préviendrons au lancement de la formule qui t'intéresse. Aucun abonnement ni paiement n'a été activé.
+
+À bientôt,
+tonjobidéal
+
+Tu reçois cette confirmation après avoir laissé ton adresse et choisi une formule pendant ton inscription.

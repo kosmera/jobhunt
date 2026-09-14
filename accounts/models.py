@@ -28,6 +28,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
+from accounts import conf
+
 # Cycle-free: ``tracker.models`` imports nothing from ``accounts`` at module
 # level (the one ``accounts.services`` import sits inside a method).
 from tracker.models import WorkMode
@@ -48,7 +50,72 @@ def default_search_radius_km() -> int:
     return settings.DEFAULT_SEARCH_RADIUS_KM
 
 
+class SubscriptionLevel(models.TextChoices):
+    AUTOMATIC = "automatic", "Automatique"
+    FREE = "free", "Gratuit"
+    PREMIUM = "premium", "Premium"
+
+
+class LaunchPlan(models.TextChoices):
+    FREE = "free", "Gratuit"
+    PREMIUM = "premium", "Premium"
+
+
+class EmailJobKind(models.TextChoices):
+    WELCOME = "welcome", "E-mail de bienvenue"
+    CONTACT_SYNC = "contact_sync", "Contact Brevo"
+
+
+class EmailJobStatus(models.TextChoices):
+    PENDING = "pending", "En attente"
+    RUNNING = "running", "En cours"
+    RETRY = "retry", "Nouvel essai prévu"
+    SUCCEEDED = "succeeded", "Terminé"
+    FAILED = "failed", "À corriger"
+    UNCERTAIN = "uncertain", "Envoi à vérifier"
+    SUPPRESSED = "suppressed", "Désinscription respectée"
+    CANCELLED = "cancelled", "Annulé"
+
+
+class LaunchEmailJob(models.Model):
+    """Durable, independently checkpointed effects of an explicit launch opt-in."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="launch_email_jobs")
+    kind = models.CharField(max_length=12, choices=EmailJobKind.choices)
+    email = models.EmailField()
+    plan = models.CharField(max_length=12, choices=LaunchPlan.choices)
+    consent_at = models.DateTimeField()
+    status = models.CharField(max_length=12, choices=EmailJobStatus.choices, default=EmailJobStatus.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    queued_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    lease_until = models.DateTimeField(null=True, blank=True)
+    claim_token = models.UUIDField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    error_code = models.CharField(max_length=64, blank=True)
+    task_id = models.CharField(max_length=32, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    if TYPE_CHECKING:
+        user_id: int
+
+        def get_kind_display(self) -> str: ...
+
+    class Meta:
+        verbose_name = "traitement e-mail"
+        verbose_name_plural = "traitements e-mail"
+        constraints = [models.UniqueConstraint(fields=["user", "kind"], name="one_launch_email_job_per_kind")]
+        indexes = [models.Index(fields=["user", "status", "next_attempt_at"], name="launch_email_due_idx")]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} #{self.pk}"
+
+
 class Profile(models.Model):
+    if TYPE_CHECKING:
+        user_id: int
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile"
     )
@@ -73,9 +140,22 @@ class Profile(models.Model):
         "et l'anonymisation le masque partout ailleurs.",
     )
     onboarded_at = models.DateTimeField("profil complété le", null=True, blank=True)
+    launch_email = models.EmailField("e-mail pour le lancement", blank=True, default="")
+    launch_plan = models.CharField(
+        "offre qui m'intéresse", max_length=12, choices=LaunchPlan.choices, blank=True, default="",
+        help_text="Un intérêt déclaré pour le lancement, sans abonnement ni accès Premium accordé.",
+    )
+    launch_consent_at = models.DateTimeField("accord de contact au lancement le", null=True, blank=True)
+    subscription_level = models.CharField(
+        "niveau d'abonnement", max_length=12, choices=SubscriptionLevel.choices,
+        default=SubscriptionLevel.AUTOMATIC,
+        help_text="Automatique : Premium en mode local hors SaaS, sinon gratuit sans période payée. "
+        "Gratuit désactive Premium ; Premium l'active jusqu'à la date éventuelle ci-dessous.",
+    )
     premium_until = models.DateTimeField(
         "premium jusqu'au", null=True, blank=True,
-        help_text="Fin de la période payée. Sans date ou après expiration, le compte est gratuit.",
+        help_text="Date limite de l'accès Premium. Après expiration, le compte est gratuit. "
+        "Sans date, le niveau choisi s'applique sans limite de durée.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -93,14 +173,19 @@ class Profile(models.Model):
 
     @property
     def is_premium(self) -> bool:
-        """Whether the paid period is running, as read on this instance.
+        """Effective subscription, as read on this instance.
 
-        Mirrors ``premium_until`` (the single source of truth, admin-managed)
-        for templates and code that already hold the profile. Access
-        decisions go through ``accounts.services.has_premium(user)``, which
-        reads the database afresh and also requires an active account.
+        Access decisions use ``accounts.services.has_premium(user)`` to read
+        the profile afresh and also require an active account. Existing paid
+        periods keep their meaning; local defaults need no database grant.
         """
-        return self.premium_until is not None and self.premium_until > timezone.now()
+        if self.subscription_level == SubscriptionLevel.FREE:
+            return False
+        if self.premium_until is not None:
+            return self.premium_until > timezone.now()
+        return self.subscription_level == SubscriptionLevel.PREMIUM or (
+            self.subscription_level == SubscriptionLevel.AUTOMATIC and conf.premium_by_default()
+        )
 
     @property
     def initials(self) -> str:

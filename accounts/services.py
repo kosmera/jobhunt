@@ -7,6 +7,7 @@ from typing import Any
 
 from django.contrib import auth
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -24,6 +25,7 @@ from accounts.models import (
     ExperienceLevel,
     HelpWanted,
     Industry,
+    LaunchPlan,
     Preferences,
     Profile,
     SalaryPeriod,
@@ -83,17 +85,17 @@ def search_profile_or_blank(user) -> SearchProfile:
 
 
 def has_premium(user) -> bool:
-    """Read the current paid entitlement; never trust a cached profile or form.
+    """Read current Premium access; never trust a cached profile or form.
 
-    Billing will maintain premium_until after confirmed payments. Until then,
-    service administrators in accounts mode can manage it on the profile.
-    No billing I/O occurs here; missing or expired entitlement denies access.
+    The admin-managed level and expiration override the deployment default.
+    No billing I/O occurs here; missing or disabled accounts have no access.
     """
     if not user or not user.is_authenticated or not user.pk:
         return False
-    return Profile.objects.filter(
-        user_id=user.pk, user__is_active=True, premium_until__gt=timezone.now()
-    ).exists()
+    profile = Profile.objects.only("subscription_level", "premium_until").filter(
+        user_id=user.pk, user__is_active=True,
+    ).first()
+    return bool(profile and profile.is_premium)
 
 
 def ensure_local_admin(user) -> None:
@@ -252,6 +254,24 @@ def finish_onboarding(user, answers: Mapping[str, Any]) -> Profile:
             location=profile.location or (cities[0] if cities else ""),
             phone=profile.phone,
         )
+        if conf.collect_launch_interest() and answers.get("launch_notify") is True:
+            email = answers.get("launch_email")
+            plan = answers.get("launch_plan")
+            if not isinstance(email, str) or plan not in LaunchPlan.values:
+                raise ValidationError("Un e-mail valide et une offre sont nécessaires pour être prévenu·e.")
+            email = email.strip().lower()
+            if not email:
+                raise ValidationError("Un e-mail est nécessaire pour être prévenu·e.")
+            email_field = Profile._meta.get_field("launch_email")
+            assert isinstance(email_field, models.EmailField)
+            email_field.clean(email, profile)
+            profile.launch_email = email
+            profile.launch_plan = plan
+            profile.launch_consent_at = profile.launch_consent_at or timezone.now()
+            profile.save(update_fields=["launch_email", "launch_plan", "launch_consent_at", "updated_at"])
+            from accounts.email_delivery import enqueue_launch_emails
+
+            enqueue_launch_emails(profile)
         radius = answers.get("search_radius_km")
         if isinstance(radius, int) and not isinstance(radius, bool) and 5 <= radius <= 300:
             preferences.search_radius_km = radius

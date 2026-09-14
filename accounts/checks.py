@@ -2,10 +2,37 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from django.conf import settings
 from django.core.checks import Error, Warning, register
 
 from accounts import conf
+
+
+@register("accounts")
+def check_email_delivery(app_configs, **kwargs):
+    queue = settings.Q_CLUSTER
+    problems = []
+    if queue.get("orm") != "default" or queue.get("sync", False):
+        problems.append(Error(
+            "Les e-mails nécessitent la file Q2 ORM sur default, avec sync=False.", id="accounts.E002",
+        ))
+    if settings.JOBHUNT_EMAIL_JOB_TIMEOUT <= 0 or settings.JOBHUNT_EMAIL_MAX_ATTEMPTS <= 0:
+        problems.append(Error("Les délais et le nombre d'essais e-mail doivent être positifs.", id="accounts.E003"))
+    list_id = settings.JOBHUNT_BREVO_LAUNCH_LIST_ID
+    if list_id is not None and (isinstance(list_id, bool) or not isinstance(list_id, int) or list_id <= 0):
+        problems.append(Error("JOBHUNT_BREVO_LAUNCH_LIST_ID doit être un identifiant de liste positif.", id="accounts.E004"))
+    try:
+        public = urlsplit(settings.JOBHUNT_PUBLIC_URL)
+        valid_url = public.scheme in {"https", "http"} and public.hostname and not (
+            public.username or public.password or public.query or public.fragment
+        )
+    except ValueError:
+        valid_url = False
+    if not valid_url:
+        problems.append(Error("JOBHUNT_PUBLIC_URL doit être l'URL publique HTTP(S) du site.", id="accounts.E005"))
+    return problems
 
 
 @register("accounts")

@@ -10,7 +10,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 
-from accounts.models import Profile
+from accounts.models import Profile, SubscriptionLevel
 from tracker.models import Application, Platform, Status
 
 from jobhunt_ai.models import (
@@ -100,7 +100,7 @@ class PageRenderTests(PremiumTestCase):
         self.assertContains(response, "Évaluer la compatibilité")
 
     def test_free_account_needs_premium_even_in_debug(self):
-        Profile.objects.filter(user=self.user).update(premium_until=None)
+        Profile.objects.filter(user=self.user).update(subscription_level=SubscriptionLevel.FREE)
         with override_settings(DEBUG=True):
             response = self.client.get(reverse("jobhunt_ai:copilot"))
         self.assertEqual(response.status_code, 402)
@@ -518,7 +518,7 @@ class ReviewRegressionViewTests(PremiumTestCase):
 
     def test_free_account_htmx_request_redirects_to_premium_page(self):
         application = make_application()
-        Profile.objects.filter(user=self.user).update(premium_until=None)
+        Profile.objects.filter(user=self.user).update(subscription_level=SubscriptionLevel.FREE)
         with override_settings(DEBUG=True):
             response = self.client.post(
                 reverse("jobhunt_ai:evaluate", args=[application.pk]),

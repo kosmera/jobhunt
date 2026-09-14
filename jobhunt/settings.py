@@ -21,6 +21,9 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get("JOBHUNT_DEBUG", "1") == "1"
 # Explicit commercial deployment switch, independent of DEBUG and AUTH_MODE.
 IS_SAAS_PRODUCTION = os.environ.get("IS_SAAS_PRODUCTION", "false").lower() in {"1", "true"}
+# Launch collection is independent of paid SaaS/AI behavior. Development stays
+# off by default, even when using password-based accounts for local testing.
+LAUNCH_INTEREST_ENABLED = os.environ.get("JOBHUNT_LAUNCH_INTEREST_ENABLED", "0" if DEBUG else "1") == "1"
 
 
 def _env_list(name: str, default: str) -> list[str]:
@@ -73,6 +76,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.humanize",
+    "django_q",
 ]
 
 # --- Copilote IA ------------------------------------------------------------
@@ -83,7 +87,7 @@ INSTALLED_APPS = [
 # ``apps.is_installed("jobhunt_ai")``; templates get ``copilot_enabled``.
 COPILOT_ENABLED = os.environ.get("COPILOT_ENABLED", "1").strip().lower() in {"1", "true"}
 if COPILOT_ENABLED:
-    INSTALLED_APPS += ["django_q", "jobhunt_ai"]
+    INSTALLED_APPS += ["jobhunt_ai"]
 
 # The copilot reads only namespaced ``JOBHUNT_AI_*`` settings, filled here from
 # the environment (``jobhunt_ai/settings.py`` holds the defaults). Legacy
@@ -128,7 +132,7 @@ if os.environ.get("JOBHUNT_AI_SCOUT_SOURCES"):
 
     JOBHUNT_AI_SCOUT_SOURCES = json.loads(os.environ["JOBHUNT_AI_SCOUT_SOURCES"])
 
-# Durable tasks: the copilot runs its agents in a django_q cluster (``manage.py
+# Durable tasks: email delivery and the copilot share a django_q cluster (``manage.py
 # qcluster``). Keeping the ORM broker on the same database makes job + message
 # creation atomic.
 _q_workers = int(os.environ.get("JOBHUNT_Q_WORKERS", "2"))
@@ -268,6 +272,12 @@ MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
 # means a 500 in production leaves no trace anywhere. The host captures stdout,
 # so send them there instead — a deployed traceback is worth more than an email
 # nobody configured.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    # HTTP request URLs may contain contact addresses. Never log them at INFO.
+    "loggers": {"httpx": {"level": "WARNING"}, "httpcore": {"level": "WARNING"}},
+}
 if not DEBUG:
     LOGGING = {
         "version": 1,
@@ -280,6 +290,7 @@ if not DEBUG:
         },
         "root": {"handlers": ["console"], "level": "INFO"},
         "loggers": {
+            **LOGGING["loggers"],
             # propagate=False: without it every request error is printed twice,
             # once here and once by the root logger.
             "django.request": {
@@ -291,9 +302,9 @@ if not DEBUG:
     }
 
 # --- Email ------------------------------------------------------------------
-# Password resets in accounts mode, and the relance reminders, are the only
-# things that send. Development prints to the console rather than needing a
-# relay; a deployment sets the credentials and gets SMTP.
+# The launch welcome uses SMTP in a background job. Other mail helpers can
+# print to the console in development; durable welcome jobs require a relay
+# so an unconfigured deployment cannot mark a console print as delivered.
 _email_host = os.environ.get("JOBHUNT_EMAIL_HOST", "")
 EMAIL_BACKEND = (
     "django.core.mail.backends.smtp.EmailBackend"
@@ -303,13 +314,22 @@ EMAIL_BACKEND = (
 EMAIL_HOST = _email_host
 EMAIL_PORT = int(os.environ.get("JOBHUNT_EMAIL_PORT", "587"))
 EMAIL_USE_TLS = os.environ.get("JOBHUNT_EMAIL_TLS", "1") == "1"
-EMAIL_HOST_USER = os.environ.get("JOBHUNT_EMAIL_USER", "")
-EMAIL_HOST_PASSWORD = os.environ.get("JOBHUNT_EMAIL_PASSWORD", "")
+# Explicit Brevo aliases let production adopt Key Vault references while old
+# installations keep their existing SMTP settings during the migration.
+EMAIL_HOST_USER = os.environ.get("JOBHUNT_BREVO_SMTP_USER") or os.environ.get("JOBHUNT_EMAIL_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("JOBHUNT_BREVO_SMTP_PASSWORD") or os.environ.get("JOBHUNT_EMAIL_PASSWORD", "")
 EMAIL_TIMEOUT = int(os.environ.get("JOBHUNT_EMAIL_TIMEOUT", "10"))
 # The From: domain has to be the one DKIM-signed by the sender, or the message
 # fails DMARC alignment and lands in spam.
 DEFAULT_FROM_EMAIL = os.environ.get("JOBHUNT_FROM_EMAIL", "TonJobIdeal <bonjour@tonjobideal.com>")
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# Contact synchronisation uses Brevo's REST API key, distinct from the SMTP key.
+JOBHUNT_BREVO_API_KEY = os.environ.get("JOBHUNT_BREVO_API_KEY", "")
+JOBHUNT_BREVO_LAUNCH_LIST_ID = int(os.environ["JOBHUNT_BREVO_LAUNCH_LIST_ID"]) if os.environ.get("JOBHUNT_BREVO_LAUNCH_LIST_ID") else None
+JOBHUNT_EMAIL_JOB_TIMEOUT = 60
+JOBHUNT_EMAIL_MAX_ATTEMPTS = 5
+JOBHUNT_PUBLIC_URL = os.environ.get("JOBHUNT_PUBLIC_URL", "https://tonjobideal.com").rstrip("/")
 
 # --- JobHunt-specific knobs -------------------------------------------------
 # ``runserver`` applies pending migrations itself before serving (and after

@@ -246,7 +246,11 @@ STEPS: tuple[Step, ...] = (
             "cv_analyzed": False, "cv_language": "",
         },
     ),
-    Step("plan", "plan", Kind.PLAN, "done", title="Commence aujourd'hui."),
+    Step(
+        "plan", "plan", Kind.PLAN, "done", title="Commence aujourd'hui.",
+        answer_keys=("launch_notify", "launch_email", "launch_plan"),
+        skip_values={"launch_notify": False, "launch_email": "", "launch_plan": ""},
+    ),
     Step("done", "", Kind.TERMINAL, None, counted=False),
 )
 

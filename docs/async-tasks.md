@@ -12,9 +12,10 @@ same queue. No HTTP view waits for an LLM response or task result.
 
 The copilot (`jobhunt_ai`) ships with the core; `uv sync` installs
 `django-q2>=1.11.1,<2` with the rest (the import/app name is `django_q`).
-`jobhunt/settings.py` adds `django_q` and `jobhunt_ai` to `INSTALLED_APPS`
-and configures `Q_CLUSTER` whenever `COPILOT_ENABLED` is on (the default);
-with `COPILOT_ENABLED=0` neither app is installed and nothing below applies.
+`jobhunt/settings.py` always installs `django_q` and configures `Q_CLUSTER`:
+the queue also runs [welcome emails and Brevo contact sync](email-delivery.md).
+`COPILOT_ENABLED=0` removes only `jobhunt_ai`; the AI tasks described below are
+disabled, while email jobs and the shared worker remain available.
 
 From the project directory, with local settings in `.env` (create it from
 `.env.example` if needed). Django does not load this file automatically:

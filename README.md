@@ -170,6 +170,44 @@ Les états du parcours sont une machine à états finis (`accounts/onboarding/`)
 un tableau d'étapes avec des gardes, vérifié à l'import et par les tests ; le
 bouton Retour, la modification depuis le bilan et le compteur en découlent.
 
+### Intérêt pour le lancement
+
+En mode `accounts` avec `JOBHUNT_LAUNCH_INTEREST_ENABLED=1`, l'écran qui suit le CV présente la formule gratuite et
+l'offre Premium en préparation à **24,90 € par mois**.
+L'adresse d'inscription est préremplie, modifiable
+sans changer l'identifiant de connexion. Le choix d'une formule et l'accord
+explicite enregistrent `Profile.launch_email`, `launch_plan` et
+`launch_consent_at`, dans la même transaction que la fin du parcours.
+Continuer sans l'e-mail de lancement n'enregistre aucun accord. Dans les deux
+cas, le nouvel utilisateur accède à son espace gratuit ; aucun paiement ni
+accès Premium n'est activé. Les installations de développement, y compris en
+mode `accounts`, conservent par défaut l'écran habituel sans collecte automatique.
+Ce réglage est indépendant du mode commercial `IS_SAAS_PRODUCTION`.
+
+L'administration affiche ces champs en lecture seule et permet de filtrer
+par formule ou par présence d'un accord. Pour mesurer l'intérêt sur l'ensemble
+des comptes, la commande suivante exporte les inscriptions actives avec
+l'identifiant du compte, l'e-mail de contact, la formule et la date de l'accord :
+
+```bash
+uv run manage.py export_launch_interest > /chemin/prive/launch-interest.csv
+```
+
+Sur PostgreSQL, lancer cette commande avec la connexion de maintenance,
+comme les migrations : la connexion web et l'administration restent soumises
+à l'isolation par compte. L'export ne change aucun rôle ni aucune politique.
+Garder le CSV hors du dépôt. L'export reste en lecture seule.
+
+Un accord enregistré crée aussi deux traitements asynchrones : un e-mail de
+bienvenue via le relais SMTP et une synchronisation du contact vers Brevo.
+Ils partagent la file Django-Q2 du copilote, disponible même si celui-ci est
+désactivé. La page n'attend aucun appel réseau. Les reprises, les inscriptions
+déjà collectées et les réglages locaux sont décrits dans
+[E-mails asynchrones](docs/email-delivery.md).
+
+Déploiement : appliquer les migrations jusqu'à `accounts.0008_launchemailjob`
+et celles de `django_q` avant de servir cette version de l'application.
+
 ### Reprise d'une base existante
 
 La migration qui a introduit les comptes rattache tout ce qui existait déjà à
@@ -548,8 +586,8 @@ court.
   pour un satellite) et pose sa politique dans une migration
   (`rls.operations.EnableRowLevelSecurity`). Le contrôle `rls.W001` signale
   tout modèle oublié — ceux du copilote compris : `jobhunt_ai/apps.py`
-  enregistre ses sept tables et déclare exemptes celles de `django_q`, une
-  file partagée que le worker lit sans compte lié.
+  enregistre ses sept tables. `accounts/apps.py` déclare exemptes celles de
+  `django_q`, une file partagée que le worker lit sans compte lié.
 - Jamais de fonction `SECURITY DEFINER` ni de vue sans `security_invoker`
   sur une table protégée : elles contournent les politiques.
 - Une connexion (`auth.login`) se fait au niveau de la requête, jamais à
@@ -611,7 +649,7 @@ et `tracker.W001` s'affichent au démarrage, c'est attendu.
 
 | Fichier | Rôle |
 | --- | --- |
-| `pyproject.toml` | Les dépendances déclarées : Django, openpyxl, pypdf et python-docx (texte des CV) ; pour le copilote, django-q2 (file durable), anthropic, openai, langgraph, pydantic, httpx, beautifulsoup4 et langchain-mcp-adapters (Bright Data) ; plus pyflakes, django-stubs et requests (tests d'intégration Azurite) dans le groupe `dev`, `psycopg` dans l'extra `postgres`, `azure-storage-blob` + `azure-identity` dans l'extra `azure`, gunicorn + whitenoise dans l'extra `deploy` (un déploiement fait `uv sync --extra postgres --extra azure --extra deploy`, à chaque `sync`). |
+| `pyproject.toml` | Les dépendances déclarées : Django, openpyxl, pypdf et python-docx (texte des CV), django-q2 (file durable des e-mails et du copilote), httpx (Brevo et veille) ; pour le copilote, anthropic, openai, langgraph, pydantic, beautifulsoup4 et langchain-mcp-adapters (Bright Data) ; plus pyflakes, django-stubs et requests (tests d'intégration Azurite) dans le groupe `dev`, `psycopg` dans l'extra `postgres`, `azure-storage-blob` + `azure-identity` dans l'extra `azure`, gunicorn + whitenoise dans l'extra `deploy` (un déploiement fait `uv sync --extra postgres --extra azure --extra deploy`, à chaque `sync`). |
 | `uv.lock` | Les versions exactes, **à committer** : c'est ce qui rend l'environnement reproductible. |
 | `.python-version` | Python 3.12 ; `uv` le télécharge tout seul s'il manque. |
 
@@ -645,16 +683,16 @@ uv export --no-dev --extra postgres --format requirements-txt > requirements.txt
 ## Copilote IA
 
 Le copilote est l'app `jobhunt_ai`, livrée avec le cœur et activée par défaut.
-`COPILOT_ENABLED=0` l'éteint d'un bloc : son app et `django_q` sortent de
+`COPILOT_ENABLED=0` l'éteint d'un bloc : son app sort de
 `INSTALLED_APPS`, ses URLs (`/copilote/`), son entrée de navigation, son panneau
 sur la fiche candidature et l'analyse de CV disparaissent avec elles, et rien de
 `jobhunt_ai` n'est importé. Dans le code, la vérité du moment est
 `apps.is_installed("jobhunt_ai")` ; les gabarits reçoivent `copilot_enabled`
 (`tracker.context_processors.navigation`), et `tracker/context_processors.py`
-n'importe `jobhunt_ai.hooks` que si l'app est là. Sur une base PostgreSQL déjà
-migrée avec le copilote, ses tables `django_q_*` restent en place : elles ne
-portent que des identifiants d'exécution et `rls` les autorise par nom
-(`rls.sql.QUEUE_TABLES`), donc l'instance reste valide sans rien supprimer.
+n'importe `jobhunt_ai.hooks` que si l'app est là. `django_q` reste installé pour
+les e-mails asynchrones ; `accounts` enregistre ses exemptions RLS et ses
+tables ne portent que des identifiants de traitements, sans adresse ni CV.
+Le worker `qcluster` est commun aux deux usages.
 
 Quatre agents, construits avec **LangGraph** (orchestration) et les SDK officiels
 **OpenAI / Anthropic** (appels au modèle, sorties structurées) :
@@ -716,24 +754,37 @@ JSON (`/copilote/api/…`), les délais et la reprise après interruption.
 
 ### Accès Premium
 
-Le copilote s'ouvre à un compte actif dont `accounts.Profile.premium_until`
-est une date future — `accounts.services.has_premium(user)` relit la base à
-chaque requête, à la mise en file et avant chaque étape d'une tâche ;
-`profile.is_premium` en est le miroir sur une instance déjà chargée, pour les
-gabarits. Aucune clé de licence ni clé API n'est demandée aux utilisateurs ;
-activer `DEBUG` ou être administrateur de l'installation ne donne aucun droit.
+En mode local auto-hébergé (`JOBHUNT_AUTH_MODE=local`, `IS_SAAS_PRODUCTION=false`),
+les comptes actifs ont **Premium par défaut**, y compris les profils existants
+sans date d'expiration. Ce défaut ne dépend ni de `DEBUG`, ni du statut
+d'administrateur, et ne crée pas de période payée artificielle en base.
+
+Dans **Administration → Profils**, le **Niveau d'abonnement** et **Premium
+jusqu'au** sont modifiables en mode local comme en mode `accounts` :
+
+- **Automatique** (défaut) : une date future accorde Premium ; sans date,
+  Premium est inclus en mode local hors SaaS et le compte est gratuit ailleurs.
+- **Gratuit** : désactive Premium, même si une date future est renseignée.
+- **Premium** : accorde Premium jusqu'à la date renseignée, ou sans limite
+  de durée si elle est vide.
+
+Toute date atteinte ou dépassée met fin à Premium, y compris en local. Les
+périodes payées existantes conservent leur date. La colonne **Premium actif**
+indique l'accès effectif. Les paramètres du compte accessibles à l'utilisateur
+ne permettent pas de modifier ces droits.
+
+`accounts.services.has_premium(user)` relit le niveau, la date et l'état actif
+du compte à chaque contrôle, à la mise en file et avant chaque étape d'une tâche ;
+`profile.is_premium` en est le miroir sur une instance déjà chargée.
+Aucune clé de licence ni clé API n'est demandée aux utilisateurs.
 Les pages Premium du copilote répondent 402 à un compte gratuit, un fragment
 HTMX le renvoie vers `/copilote/`. L'analyse de CV et le suivi de cette analyse
 sont accessibles aux comptes gratuits actifs, depuis les documents comme
 pendant le parcours Bienvenue. Les autres opérations gardent leur contrôle
 d'accès ; les quotas de l'instance commerciale restent applicables.
 
-En attendant Stripe, un administrateur du service en mode `accounts` renseigne
-la fin de période payée dans **Administration → Profils → Premium jusqu'au** ;
-en mode `local`, cette date est en lecture seule. Le futur backend de paiement
-maintiendra cette date après confirmation du paiement ; aucun checkout ni
-webhook n'est encore implémenté, et les comptes existants restent gratuits
-tant qu'aucun droit ne leur est attribué.
+En attendant Stripe, les abonnements sont gérés dans cette administration ;
+aucun checkout ni webhook de paiement n'est encore implémenté.
 
 Une instance commerciale (`IS_SAAS_PRODUCTION=true`) ouvre le copilote à tout
 compte et le mesure par quotas de requêtes (gratuit/payant), les appels

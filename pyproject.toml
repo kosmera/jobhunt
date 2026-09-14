@@ -9,9 +9,9 @@ dependencies = [
     "openpyxl>=3.1.5",   # lecture du classeur d'origine (commande import_legacy)
     "pypdf>=5",          # texte des CV PDF (port de stockage, extract_and_anonymize_text)
     "python-docx>=1.1",  # texte des CV DOCX, rendu des CV ATS générés
-    # Copilote IA (app jobhunt_ai, activée par COPILOT_ENABLED) : file durable,
+    "django-q2>=1.11.1,<2",             # file durable partagée : e-mails et copilote
+    # Copilote IA (app jobhunt_ai, activée par COPILOT_ENABLED) :
     # SDK Anthropic (sorties structurées), orchestration des agents, veille.
-    "django-q2>=1.11.1,<2",             # file durable, worker séparé du serveur HTTP
     "anthropic>=1.0,<2",                # SDK officiel : messages.parse + sorties structurées
     "langgraph>=1.0,<2",                # orchestration des agents (graphes d'états)
     "pydantic>=2.7",

@@ -15,6 +15,11 @@ class AccountsConfig(AppConfig):
         register("accounts.Profile", owner="user")
         register("accounts.Preferences", owner="user")
         register("accounts.SearchProfile", owner="user")
+        register("accounts.LaunchEmailJob", owner="user")
+        # The shared queue carries job/account IDs, never recipients or CVs.
+        from rls import exempt
+        for label in ("OrmQ", "Task", "Schedule"):
+            exempt(f"django_q.{label}")
         # Registers the post_save receiver and the configuration checks.
         import_module("accounts.signals")
         import_module("accounts.checks")

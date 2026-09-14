@@ -1,0 +1,72 @@
+{% extends "accounts/onboarding/layout.html" %}
+{% block title %}Les formules et la suite — tonjobidéal{% endblock %}
+{% block step %}
+  <form method="post" class="onb__form interest" novalidate>
+    {% csrf_token %}
+    <span class="eyebrow onb__eyebrow">La suite, ensemble</span>
+    <h1 class="onb__title">Ton espace est prêt. Et la suite&nbsp;?</h1>
+    <p class="onb__lede">Commence gratuitement à organiser ta recherche. Nous préparons l’offre Premium : dis-nous ce qui t’intéresse pour être tenu au courant de son lancement.</p>
+
+    {% for error in form.non_field_errors %}<div class="flash t-red" role="alert">{{ error }}</div>{% endfor %}
+
+    <fieldset class="interest__choices" aria-describedby="interest-plan-help">
+      <legend class="interest__heading">Quelle formule t’intéresse&nbsp;?</legend>
+      <p class="interest__help" id="interest-plan-help">Ton choix nous aide à préparer la suite. Aucun paiement, aucun abonnement aujourd’hui.</p>
+      <div class="interest__plans">
+        <label class="interest-plan" for="id_interest_plan_free">
+          <input type="radio" id="id_interest_plan_free" name="{{ form.plan.html_name }}" value="free" class="interest-plan__radio" required{% if form.plan.value == "free" %} checked{% endif %} aria-labelledby="interest-free-name interest-free-price" aria-describedby="interest-free-status{% if form.plan.errors %} interest-plan-errors{% endif %}"{% if form.plan.errors %} aria-invalid="true"{% endif %}>
+          <span class="interest-plan__status" id="interest-free-status">Disponible maintenant</span>
+          <span class="interest-plan__name" id="interest-free-name">Gratuit</span>
+          <span class="interest-plan__price" id="interest-free-price">0&nbsp;€</span>
+          <span class="interest-plan__description">Les bases pour garder le fil de ta recherche.</span>
+          <span class="interest-plan__features" role="list">
+            <span role="listitem"><svg aria-hidden="true"><use href="#i-check"></use></svg>Suivi de tes candidatures</span>
+            <span role="listitem"><svg aria-hidden="true"><use href="#i-check"></use></svg>CV et documents au même endroit</span>
+            <span role="listitem"><svg aria-hidden="true"><use href="#i-check"></use></svg>Organisation de tes relances</span>
+          </span>
+          <span class="interest-plan__choice"><span class="interest-plan__unselected">Cette formule m’intéresse</span><span class="interest-plan__selected">Formule sélectionnée</span></span>
+        </label>
+
+        <label class="interest-plan" for="id_interest_plan_premium">
+          <input type="radio" id="id_interest_plan_premium" name="{{ form.plan.html_name }}" value="premium" class="interest-plan__radio" required{% if form.plan.value == "premium" %} checked{% endif %} aria-labelledby="interest-premium-name interest-premium-price" aria-describedby="interest-premium-status{% if form.plan.errors %} interest-plan-errors{% endif %}"{% if form.plan.errors %} aria-invalid="true"{% endif %}>
+          <span class="interest-plan__status interest-plan__status--future" id="interest-premium-status">En préparation</span>
+          <span class="interest-plan__name" id="interest-premium-name">Premium</span>
+          <span class="interest-plan__price{% if not premium_price_period %} interest-plan__price--pending{% endif %}" id="interest-premium-price">{{ premium_price_label }}{% if premium_price_period %}<small>{{ premium_price_period }}</small>{% endif %}</span>
+          <span class="interest-plan__description">Un copilote IA en préparation pour aller plus loin.</span>
+          <span class="interest-plan__features" role="list">
+            <span role="listitem"><svg aria-hidden="true"><use href="#i-check"></use></svg>Tout ce que propose la formule gratuite</span>
+            <span role="listitem"><svg aria-hidden="true"><use href="#i-check"></use></svg>Analyse des offres avec l’IA</span>
+            <span role="listitem"><svg aria-hidden="true"><use href="#i-check"></use></svg>Aide à adapter ton CV aux offres</span>
+            <span role="listitem"><svg aria-hidden="true"><use href="#i-check"></use></svg>Repérage des compétences à développer</span>
+          </span>
+          <span class="interest-plan__choice"><span class="interest-plan__unselected">Cette formule m’intéresse</span><span class="interest-plan__selected">Formule sélectionnée</span></span>
+        </label>
+      </div>
+      {% if form.plan.errors %}<div id="interest-plan-errors" class="field__error" role="alert">{% for error in form.plan.errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+    </fieldset>
+
+    <section class="interest__contact" aria-labelledby="interest-contact-title">
+      <h2 class="interest__heading" id="interest-contact-title">On te tient au courant&nbsp;?</h2>
+      <p class="interest__help">Laisse ton e-mail pour être prévenu au lancement et connaître la disponibilité de la formule qui t’intéresse.</p>
+      <div class="field">
+        <label class="field__label" for="{{ form.email.id_for_label }}">Ton e-mail de contact</label>
+        <input class="input" type="email" name="{{ form.email.html_name }}" id="{{ form.email.id_for_label }}" value="{{ form.email.value|default_if_none:'' }}" autocomplete="email" inputmode="email" maxlength="{{ form.email.field.max_length|default:254 }}" required aria-describedby="interest-email-help{% if form.email.errors %} interest-email-errors{% endif %}"{% if form.email.errors %} aria-invalid="true"{% endif %}>
+        <span class="field__help" id="interest-email-help">Tu peux choisir une autre adresse ici. Ton e-mail de connexion reste le même.</span>
+        {% if form.email.errors %}<div id="interest-email-errors" class="field__error" role="alert">{% for error in form.email.errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+      </div>
+      <div class="field interest__consent-field">
+        <label class="interest__consent" for="{{ form.consent.id_for_label }}">
+          <input type="checkbox" name="{{ form.consent.html_name }}" id="{{ form.consent.id_for_label }}" required{% if form.consent.value %} checked{% endif %}{% if form.consent.errors %} aria-invalid="true" aria-describedby="interest-consent-errors"{% endif %}>
+          <span>{{ form.consent.label }}</span>
+        </label>
+        {% if form.consent.errors %}<div id="interest-consent-errors" class="field__error" role="alert">{% for error in form.consent.errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+      </div>
+    </section>
+
+    <div class="onb__actions interest__actions">
+      <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">Me tenir au courant et ouvrir mon espace</button>
+      <button type="submit" name="action" value="skip" class="btn btn--ghost btn--block" formnovalidate>Continuer sans l’e-mail de lancement</button>
+      <p class="onb__note interest__access-note">Dans les deux cas, tu accèdes à ton espace gratuit. La formule Premium sera proposée plus tard.</p>
+    </div>
+  </form>
+{% endblock %}

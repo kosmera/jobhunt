@@ -43,6 +43,7 @@ from accounts.onboarding.forms import (
     CVForm,
     IdentityForm,
     IndustriesForm,
+    LaunchInterestForm,
     MultiChoiceForm,
     SalaryForm,
     SingleChoiceForm,
@@ -199,6 +200,9 @@ def onboarding_step(request, slug: str):
         profile = finish_onboarding(user, new_run.answers)
         store.clear(request)
         messages.success(request, WELCOME.format(name=profile.display_name))
+        if conf.collect_launch_interest() and new_run.answers.get("launch_notify") is True:
+            messages.success(request, "C'est noté ! Ton intérêt est enregistré. "
+                             "Tu recevras un e-mail au lancement. Aucun abonnement n'a été activé.")
         return _redirect(request, reverse("tracker:dashboard"))
     store.save(request, new_run)
     return _redirect(request, step_url(machine.current(new_run, ctx)))
@@ -256,11 +260,16 @@ def _form_for(step: Step, request, run: Run, user, *, data=None, files=None, upl
             return None  # a plain Continue on the result card carries no form
         language = answers.get("cv_language") or (preferences_for(user).default_cv_language if user else "fr")
         return CVForm(data, files, initial={"language": language})
+    if kind is Kind.PLAN and conf.collect_launch_interest():
+        assert user is not None
+        return LaunchInterestForm(data, initial={"email": user.email})
     return None
 
 
 def _answer(step: Step, form, request, ctx: Context, user) -> dict[str, Any]:
     """What the machine stores for this POST — after the screen's side effects, if any."""
+    if step.kind is Kind.PLAN and not conf.collect_launch_interest():
+        return dict(step.skip_values or {})
     if step.kind is Kind.GATE:
         assert form is not None
         variant = services.gate_variant(user, ctx)
@@ -361,6 +370,9 @@ def _render(request, step: Step, run: Run, ctx: Context, user, form, status: int
         })
     elif kind is Kind.PLAN:
         assert user is not None
+        if conf.collect_launch_interest():
+            context.update({"premium_price_label": "24,90 €", "premium_price_period": "/ mois"})
+            return render(request, "accounts/onboarding/interest.html", context, status=status)
         context.update({"rows": services.plan_rows(preferences_for(user)), "cost": services.cost_line(run.answers)})
     template = step.template or f"accounts/onboarding/{kind.value}.html"
     return render(request, template, context, status=status)

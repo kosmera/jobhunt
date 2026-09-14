@@ -56,7 +56,66 @@ class SubscriptionLevel(models.TextChoices):
     PREMIUM = "premium", "Premium"
 
 
+class LaunchPlan(models.TextChoices):
+    FREE = "free", "Gratuit"
+    PREMIUM = "premium", "Premium"
+
+
+class EmailJobKind(models.TextChoices):
+    WELCOME = "welcome", "E-mail de bienvenue"
+    CONTACT_SYNC = "contact_sync", "Contact Brevo"
+
+
+class EmailJobStatus(models.TextChoices):
+    PENDING = "pending", "En attente"
+    RUNNING = "running", "En cours"
+    RETRY = "retry", "Nouvel essai prévu"
+    SUCCEEDED = "succeeded", "Terminé"
+    FAILED = "failed", "À corriger"
+    UNCERTAIN = "uncertain", "Envoi à vérifier"
+    SUPPRESSED = "suppressed", "Désinscription respectée"
+    CANCELLED = "cancelled", "Annulé"
+
+
+class LaunchEmailJob(models.Model):
+    """Durable, independently checkpointed effects of an explicit launch opt-in."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="launch_email_jobs")
+    kind = models.CharField(max_length=12, choices=EmailJobKind.choices)
+    email = models.EmailField()
+    plan = models.CharField(max_length=12, choices=LaunchPlan.choices)
+    consent_at = models.DateTimeField()
+    status = models.CharField(max_length=12, choices=EmailJobStatus.choices, default=EmailJobStatus.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    queued_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    lease_until = models.DateTimeField(null=True, blank=True)
+    claim_token = models.UUIDField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    error_code = models.CharField(max_length=64, blank=True)
+    task_id = models.CharField(max_length=32, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    if TYPE_CHECKING:
+        user_id: int
+
+        def get_kind_display(self) -> str: ...
+
+    class Meta:
+        verbose_name = "traitement e-mail"
+        verbose_name_plural = "traitements e-mail"
+        constraints = [models.UniqueConstraint(fields=["user", "kind"], name="one_launch_email_job_per_kind")]
+        indexes = [models.Index(fields=["user", "status", "next_attempt_at"], name="launch_email_due_idx")]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} #{self.pk}"
+
+
 class Profile(models.Model):
+    if TYPE_CHECKING:
+        user_id: int
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile"
     )
@@ -81,6 +140,12 @@ class Profile(models.Model):
         "et l'anonymisation le masque partout ailleurs.",
     )
     onboarded_at = models.DateTimeField("profil complété le", null=True, blank=True)
+    launch_email = models.EmailField("e-mail pour le lancement", blank=True, default="")
+    launch_plan = models.CharField(
+        "offre qui m'intéresse", max_length=12, choices=LaunchPlan.choices, blank=True, default="",
+        help_text="Un intérêt déclaré pour le lancement, sans abonnement ni accès Premium accordé.",
+    )
+    launch_consent_at = models.DateTimeField("accord de contact au lancement le", null=True, blank=True)
     subscription_level = models.CharField(
         "niveau d'abonnement", max_length=12, choices=SubscriptionLevel.choices,
         default=SubscriptionLevel.AUTOMATIC,

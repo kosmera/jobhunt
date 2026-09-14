@@ -43,7 +43,7 @@ client.force_login(user)
 
 WITHOUT_COPILOT = PROLOGUE + """
 assert not apps.is_installed("jobhunt_ai")
-assert not apps.is_installed("django_q")
+assert apps.is_installed("django_q")  # email delivery also uses the shared queue
 for route in ("dashboard", "pipeline", "application_list", "document_library", "insights"):
     response = client.get(reverse(f"tracker:{route}"))
     assert response.status_code == 200, (route, response.status_code)

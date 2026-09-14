@@ -250,6 +250,49 @@
 .cost p + p { margin-top: 0.6rem; }
 .cost strong { font-family: var(--font-mono); font-size: 0.95em; font-weight: 600; color: var(--accent); white-space: nowrap; }
 
+/* ---------------------------------------------- launch interest / plans -- */
+
+.interest .onb__lede { max-width: 66ch; color: var(--ink-2); }
+.interest__heading { margin: 0 0 0.45rem; font-size: 1.05rem; font-weight: 600; line-height: 1.4; color: var(--heading); }
+.interest__help { margin: 0 0 1rem; font-size: 0.9rem; line-height: 1.6; color: var(--ink-2); }
+.interest__plans { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.interest-plan {
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  padding: 1.25rem; border: 1px solid var(--rule-strong); border-radius: var(--radius-lg);
+  background: var(--card); color: var(--ink); cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.interest-plan:hover { border-color: var(--accent); }
+.interest-plan:has(:checked) { border-color: var(--accent); background: var(--accent-wash); box-shadow: inset 0 0 0 1px var(--accent); }
+.interest-plan:has(:focus-visible) { outline: 3px solid var(--accent); outline-offset: 3px; }
+.interest-plan__radio { position: absolute; top: 1.3rem; right: 1.25rem; width: 19px; height: 19px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.interest-plan__status { align-self: flex-start; max-width: calc(100% - 2rem); margin-bottom: 1rem; font-size: 0.8rem; line-height: 1.5; font-weight: 550; color: var(--accent); }
+.interest-plan__status--future { color: var(--ink-2); }
+.interest-plan__name { margin-bottom: 0.4rem; font-size: 1.3rem; font-weight: 600; letter-spacing: -0.025em; color: var(--heading); }
+.interest-plan__price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.25rem 0.4rem; min-height: 2.8rem; font-size: 2.2rem; font-weight: 550; line-height: 1.25; letter-spacing: -0.04em; color: var(--heading); }
+.interest-plan__price--pending { font-size: 1.55rem; line-height: 1.7; letter-spacing: -0.03em; }
+.interest-plan__price small { font-size: 0.9rem; font-weight: 400; letter-spacing: 0; color: var(--ink-2); }
+.interest-plan__description { margin: 0.65rem 0 1rem; font-family: var(--font-prose); font-size: 1.15rem; line-height: 1.45; color: var(--ink-2); }
+.interest-plan__features { display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 1.25rem; font-size: 0.9rem; line-height: 1.5; }
+.interest-plan__features > span { display: flex; align-items: flex-start; gap: 0.55rem; }
+.interest-plan__features svg { flex: none; width: 16px; height: 16px; margin-top: 0.15rem; color: var(--accent); }
+.interest-plan__choice { display: block; margin-top: auto; padding-top: 0.85rem; border-top: 1px solid var(--rule); font-size: 0.85rem; line-height: 1.5; font-weight: 550; color: var(--ink-2); }
+.interest-plan__selected { display: none; }
+.interest-plan__radio:checked ~ .interest-plan__choice { color: var(--accent); }
+.interest-plan__radio:checked ~ .interest-plan__choice .interest-plan__unselected { display: none; }
+.interest-plan__radio:checked ~ .interest-plan__choice .interest-plan__selected { display: inline; }
+.interest__contact { margin-top: 1.75rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+.interest .field__label, .interest .field__help, .interest .field__error { font-size: 0.85rem; line-height: 1.6; }
+.interest .field__error p { margin: 0.4rem 0 0; }
+.interest .input { font-size: 16px; }
+.interest .input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none; }
+.interest__consent { display: flex; align-items: flex-start; gap: 0.75rem; min-height: 44px; padding: 0.35rem 0; font-size: 0.9rem; line-height: 1.6; color: var(--ink-2); cursor: pointer; }
+.interest__consent input { flex: none; width: 19px; height: 19px; margin: 0.1rem 0 0; accent-color: var(--accent); cursor: pointer; }
+.interest__consent input:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.interest__consent-field { margin-bottom: 0; }
+.interest .interest__actions { position: static; margin-top: 1.25rem; padding: 0; background: none; }
+.interest .interest__access-note { margin: 0.25rem 0 0; font-size: 0.85rem; text-align: center; }
+
 /* -------------------------------------------------------- interstitials -- */
 
 .onb__illustration { display: block; width: min(240px, 60%); margin: 0 auto 1.5rem; }
@@ -287,5 +330,10 @@
   .review__value { grid-column: 1; }
   .review__row .icon-btn { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
   .plan__row { grid-template-columns: 1fr; gap: 0.25rem; }
+  .interest__plans { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+  .interest-plan { padding: 1.1rem; }
+  .interest-plan__radio { top: 1.15rem; right: 1.1rem; }
+  .interest__contact { margin-top: 1.25rem; padding-top: 1.25rem; }
+  .interest { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
   .onb__illustration { width: min(200px, 55%); margin-bottom: 1rem; }
 }

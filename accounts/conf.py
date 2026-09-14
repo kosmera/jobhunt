@@ -31,3 +31,8 @@ def premium_by_default() -> bool:
 
 def signup_open() -> bool:
     return not is_local() and bool(settings.SIGNUP_OPEN)
+
+
+def collect_launch_interest() -> bool:
+    """Production collection is opt-in independently of commercial SaaS features."""
+    return not is_local() and bool(settings.LAUNCH_INTEREST_ENABLED)

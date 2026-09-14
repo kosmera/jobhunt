@@ -358,7 +358,7 @@ class TransitionTests(SimpleTestCase):
     def test_terminal_accepts_no_event_and_is_returned_only_by_continue_from_plan(self):
         named = Context(authenticated=True, display_name_known=True)
         run = walk(named, until="plan")
-        done = machine.apply(run, Event.CONTINUE, named, at="plan")
+        done = machine.apply(run, Event.CONTINUE, named, at="plan", answer=DEFAULT_ANSWERS["plan"])
         self.assertEqual(done.state, "done")
         for event in Event:
             with self.subTest(event=event), self.assertRaises(IllegalTransition):

@@ -16,12 +16,49 @@ from django import forms
 from django.conf import settings
 
 from accounts.forms import chips_text_field, getlist, merge_entries, submitted, text_input
-from accounts.models import MAX_CITIES, MAX_JOB_TITLES, Industry, SalaryPeriod
+from accounts.models import MAX_CITIES, MAX_JOB_TITLES, Industry, LaunchPlan, SalaryPeriod
 from accounts.onboarding.flow import RADIUS_CHOICES, SALARY_BOUNDS, Option
 from tracker.models import Language
 
 #: A CV is a PDF or a DOCX; the library accepts more, this screen keeps it simple.
 CV_SUFFIXES = frozenset({".pdf", ".docx"})
+
+
+class LaunchInterestForm(forms.Form):
+    """An explicit request for a launch email, independent of paid access."""
+
+    plan = forms.ChoiceField(
+        label="La formule qui t'intéresse",
+        choices=LaunchPlan.choices,
+        widget=forms.RadioSelect,
+        error_messages={
+            "required": "Choisis la formule qui t'intéresse.",
+            "invalid_choice": "Choisis une des deux formules proposées.",
+        },
+    )
+    email = forms.EmailField(
+        label="Ton e-mail pour le lancement",
+        max_length=254,
+        widget=forms.EmailInput(attrs={
+            "class": "input", "autocomplete": "email", "inputmode": "email",
+            "aria-describedby": "interest-email-help",
+        }),
+        error_messages={
+            "required": "Indique l'e-mail où te prévenir.",
+            "invalid": "Indique une adresse e-mail valide.",
+        },
+    )
+    consent = forms.BooleanField(
+        label="J'accepte de recevoir une confirmation de mon inscription et un e-mail au lancement de la formule qui m'intéresse.",
+        error_messages={"required": "Coche cette case pour recevoir l'e-mail de lancement, ou continue sans t'inscrire."},
+    )
+
+    def answers(self) -> dict[str, Any]:
+        return {
+            "launch_notify": self.cleaned_data["consent"],
+            "launch_email": self.cleaned_data["email"],
+            "launch_plan": self.cleaned_data["plan"],
+        }
 
 
 class SingleChoiceForm(forms.Form):

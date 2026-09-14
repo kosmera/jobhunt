@@ -35,6 +35,7 @@ DEFAULT_ANSWERS: dict[str, dict[str, Any]] = {
         "cv_document_id": None, "cv_text_chars": None, "cv_redactions": "",
         "cv_analyzed": False, "cv_language": "",
     },
+    "plan": {"launch_notify": False, "launch_email": "", "launch_plan": ""},
 }
 
 #: Browser-level POST payloads for the same answers; the CV step is skipped.
@@ -54,6 +55,7 @@ DEFAULT_POSTS: dict[str, dict[str, Any]] = {
     "timeline": {"choice": "asap"},
     "identity": {"display_name": "Lionel"},
     "cv": {"action": "skip"},
+    "plan": {"action": "skip"},
 }
 
 

@@ -9,12 +9,25 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.signals import user_logged_in
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
+from accounts import conf
 from accounts.models import Preferences, Profile
 from accounts.services import ensure_local_admin
 from rls import as_user
+
+
+@receiver(pre_save, sender=get_user_model(), dispatch_uid="accounts.passwordless_password")
+def discard_production_password(sender, instance, update_fields=None, using="default", **kwargs):
+    """Admin and management-command saves must not introduce password hashes."""
+    if not conf.passwordless() or not instance.has_usable_password():
+        return
+    instance.set_unusable_password()
+    if instance.pk and update_fields is not None and "password" not in update_fields:
+        # A partial save (including Django's last_login update) would otherwise
+        # leave an old password in the database despite the in-memory change.
+        sender._default_manager.using(using).filter(pk=instance.pk).update(password=instance.password)
 
 
 @receiver(user_logged_in, dispatch_uid="accounts.local_admin")

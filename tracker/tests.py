@@ -1624,8 +1624,10 @@ class OwnershipMigrationTests(TransactionTestCase):
 
     def test_orphans_go_to_the_only_existing_account(self):
         apps = self.rewind()
-        # ``auth`` is untouched by the rewind: the live model is the right one.
-        admin = User.objects.create_user("admin", password="x")
+        # Historical models avoid current profile signals while the accounts
+        # schema is rewound; auth itself is unchanged by this migration.
+        HistoricalUser = MigrationExecutor(connection).loader.project_state().apps.get_model("auth", "User")
+        admin = HistoricalUser.objects.create(username="admin", password="!")
         self.seed(apps)
         self.replay()
 

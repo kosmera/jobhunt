@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="fr">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{% if email_change %}Confirme ta nouvelle adresse{% elif signup %}Confirme ton inscription{% else %}Ton lien de connexion{% endif %} — tonjobidéal</title></head>
+  <body style="margin:0;padding:24px;background:#f6f5f2;color:#292c32;font-family:Arial,sans-serif;line-height:1.6;">
+    <div style="max-width:560px;margin:auto;padding:32px;background:#ffffff;border-radius:12px;">
+      <p style="color:#55623f;font-weight:bold;">tonjobidéal</p>
+      <h1 style="font-size:26px;line-height:1.3;">{% if email_change %}Confirme ta nouvelle adresse{% elif signup %}Confirme ton inscription{% else %}Retrouve ton espace{% endif %}</h1>
+      <p>{% if email_change %}Tu as demandé à changer l'adresse e-mail de ton compte. Ouvre le lien ci-dessous, puis confirme ta nouvelle adresse pour l'utiliser lors de tes prochaines connexions.{% elif signup %}Bienvenue ! Ouvre le lien ci-dessous, puis confirme ton adresse e-mail pour créer ton compte et continuer ton inscription.{% else %}Tu as demandé à te connecter à ton compte. Ouvre le lien ci-dessous, puis confirme pour retrouver ton espace.{% endif %}</p>
+      <p style="margin:28px 0;"><a href="{{ link_url }}" style="display:inline-block;padding:12px 20px;background:#55623f;color:#ffffff;text-decoration:none;border-radius:6px;">{% if email_change %}Vérifier ma nouvelle adresse{% elif signup %}Confirmer mon inscription{% else %}Me connecter{% endif %}</a></p>
+      <p>Ce lien est valable <strong>{{ expires_minutes }} minutes</strong> et utilisable une seule fois. Garde-le pour toi.</p>
+      <p>Si le bouton ne fonctionne pas, copie ce lien dans ton navigateur :</p>
+      <p style="overflow-wrap:anywhere;word-break:break-word;"><a href="{{ link_url }}" style="color:#55623f;">{{ link_url }}</a></p>
+      <p>À bientôt,<br>tonjobidéal</p>
+      <p style="margin-top:32px;font-size:12px;color:#656565;">Si tu n'as pas fait cette demande, ignore cet e-mail. Aucune action ne sera effectuée sans ta confirmation.</p>
+    </div>
+  </body>
+</html>

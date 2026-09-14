@@ -1,0 +1,27 @@
+{% extends "accounts/base_auth.html" %}
+
+{% block title %}Vérifie tes e-mails — tonjobidéal{% endblock %}
+{% block auth_eyebrow %}Un lien par e-mail{% endblock %}
+{% block auth_title %}Vérifie ta boîte de réception{% endblock %}
+{% block auth_lede %}Si cette adresse permet de poursuivre la demande, un e-mail contenant un lien vient de lui être envoyé.{% endblock %}
+
+{% block auth_body %}
+  <div class="stack">
+    <p class="prose prose--tight">Ouvre le lien dans l'e-mail, puis confirme pour continuer. Le lien est personnel, valable 15 minutes et utilisable une seule fois.</p>
+    <p class="prose prose--tight">Rien reçu ? Vérifie tes courriers indésirables et l'adresse saisie. L'e-mail peut mettre quelques instants à arriver.</p>
+    {% if onboarding_url %}
+      <a href="{{ onboarding_url }}" class="btn btn--primary btn--block">Revenir à mon inscription</a>
+    {% endif %}
+    {% if can_resend %}
+      <form method="post" action="{% url 'accounts:email_link_resend' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn--block">Renvoyer le lien</button>
+        <p class="prose prose--tight">Attends une minute entre deux demandes.</p>
+      </form>
+    {% else %}
+      <a href="{% url 'accounts:login' %}" class="btn btn--block">Demander un nouveau lien</a>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block auth_foot %}<a href="{% url 'accounts:login' %}">Revenir à la connexion</a>.{% endblock %}

@@ -3,7 +3,7 @@
 {% block title %}Inscription — tonjobidéal{% endblock %}
 {% block auth_eyebrow %}Inscription{% endblock %}
 {% block auth_title %}Ouvre ton suivi{% endblock %}
-{% block auth_lede %}Un nom, un e-mail, un mot de passe. Tes candidatures ne sont visibles que de toi.{% endblock %}
+{% block auth_lede %}{% if auth_passwordless %}Un nom et un e-mail suffisent. Confirme ton adresse avec le lien reçu par e-mail pour créer ton compte.{% else %}Un nom, un e-mail, un mot de passe. Tes candidatures ne sont visibles que de toi.{% endif %}{% endblock %}
 
 {% block auth_body %}
   <form method="post" class="stack" style="gap:.2rem" novalidate>
@@ -11,10 +11,12 @@
     {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
     {% include "tracker/partials/field.html" with field=form.display_name %}
     {% include "tracker/partials/field.html" with field=form.email %}
-    {% include "tracker/partials/field.html" with field=form.password1 %}
-    {% include "tracker/partials/field.html" with field=form.password2 %}
+    {% if not auth_passwordless %}
+      {% include "tracker/partials/field.html" with field=form.password1 %}
+      {% include "tracker/partials/field.html" with field=form.password2 %}
+    {% endif %}
     <button type="submit" class="btn btn--primary btn--block" style="margin-top:.4rem">
-      <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg> Créer mon compte
+      <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg> {% if auth_passwordless %}Recevoir mon lien de confirmation{% else %}Créer mon compte{% endif %}
     </button>
   </form>
 {% endblock %}

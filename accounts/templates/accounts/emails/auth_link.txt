@@ -1,0 +1,12 @@
+{% if email_change %}Confirme ta nouvelle adresse e-mail{% elif signup %}Confirme ton inscription sur tonjobidéal{% else %}Ton lien de connexion à tonjobidéal{% endif %}
+
+{% if email_change %}Tu as demandé à changer l'adresse e-mail de ton compte. Ouvre ce lien, puis confirme ta nouvelle adresse pour l'utiliser lors de tes prochaines connexions.{% elif signup %}Bienvenue ! Ouvre ce lien, puis confirme ton adresse e-mail pour créer ton compte et continuer ton inscription.{% else %}Tu as demandé à te connecter à ton compte. Ouvre ce lien, puis confirme pour retrouver ton espace.{% endif %}
+
+{{ link_url }}
+
+Ce lien est valable {{ expires_minutes }} minutes et utilisable une seule fois. Garde-le pour toi.
+
+Si tu n'as pas fait cette demande, ignore cet e-mail. Aucune action ne sera effectuée sans ta confirmation.
+
+À bientôt,
+tonjobidéal

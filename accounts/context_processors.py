@@ -13,6 +13,7 @@ from rls import as_user
 def account(request):
     context: dict[str, object] = {
         "auth_is_local": conf.is_local(),
+        "auth_passwordless": conf.passwordless(),
         "signup_open": conf.signup_open(),
     }
     user = getattr(request, "user", None)

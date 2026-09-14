@@ -42,9 +42,9 @@ from tracker.models import Language, WorkMode
 LOCAL_USERNAME = "local"
 
 #: The backend recorded on the session when a user is signed in without a
-#: password (local mode). ``auth.login`` needs one; ``ModelBackend`` is the
-#: one that will later answer ``has_perm``/``get_user`` for that session.
-LOCAL_BACKEND = "django.contrib.auth.backends.ModelBackend"
+#: password. ``auth.login`` needs one; our backend also enforces verified
+#: email on shared production sessions and keeps Django's permissions.
+LOCAL_BACKEND = "accounts.backends.AccountsBackend"
 
 #: The follow-up delay proposed to someone who needs a job soon, when the
 #: preference still holds the environment default.

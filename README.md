@@ -47,12 +47,16 @@ Les profils supplémentaires restent des utilisateurs ordinaires. Ce rôle
 n'ouvre pas le [copilote IA](#copilote-ia), réservé aux comptes Premium ; la
 date Premium est en lecture seule dans l'administration locale.
 
-Pour une instance auto-hébergée avec connexion par mot de passe
-(`JOBHUNT_AUTH_MODE=accounts`), crée explicitement l'administrateur :
+Pour une instance partagée (`JOBHUNT_AUTH_MODE=accounts`), crée explicitement
+l'administrateur avec une adresse réelle, accessible et unique :
 
 ```bash
-uv run manage.py createsuperuser
+uv run --env-file .env manage.py createsuperuser --noinput --username admin --email toi@example.org
 ```
+
+En production, ouvre `/admin/` et demande le lien de connexion envoyé à cette
+adresse. L'administration utilise la même confirmation par e-mail que les
+autres comptes ; aucun mot de passe n'est nécessaire.
 
 ## Ce qu'il y a dans l'application
 
@@ -64,7 +68,7 @@ uv run manage.py createsuperuser
 | **Documents** | Les 4 CV génériques d'un côté, les CV adaptés rattachés à leur offre de l'autre. |
 | **Analyse** | Les lacunes à combler, les plateformes explorées, les offres écartées (récupérables en un clic), et un nuage compatibilité × distance. |
 | **Copilote** | Le copilote IA (`/copilote/`), pour les comptes Premium : analyse du CV en profil candidat, évaluation d'une offre, CV ciblé, veille sur les sites d'offres. Voir [Copilote IA](#copilote-ia). |
-| **Réglages** | Ton profil (nom, titre, point de départ, e-mail), ce que tu cherches (les réponses du parcours Bienvenue : postes, secteurs, expérience, formation, contrats, mode de travail, villes, salaire, horizon, situation), tes préférences (délais de relance et de signalement, rayon, langue de CV), ton mot de passe, et la suppression du compte. Accessible depuis ton nom, en bas de la barre latérale. |
+| **Réglages** | Ton profil (nom, titre, point de départ, e-mail), ce que tu cherches (les réponses du parcours Bienvenue : postes, secteurs, expérience, formation, contrats, mode de travail, villes, salaire, horizon, situation), tes préférences (délais de relance et de signalement, rayon, langue de CV), et la suppression du compte. En production, un changement d'e-mail doit être confirmé ; les mots de passe restent disponibles uniquement pour la compatibilité locale ou de développement. Accessible depuis ton nom, en bas de la barre latérale. |
 
 ### Automatismes
 
@@ -133,7 +137,7 @@ s'appliquent ensuite à l'entrée dans l'espace privé :
 | Mode | Quand | Comment on entre |
 | --- | --- | --- |
 | `local` (défaut si `JOBHUNT_DEBUG=1`) | ta machine | Aucun mot de passe. Pas de profil → parcours **Bienvenue** (une vingtaine d'écrans : situation, postes visés, secteurs, mode de travail, salaire, CV… ; le nom est demandé juste avant le CV, puis le tableau de bord). Un profil → connecté d'office. Plusieurs → on choisit dans une liste, et « Changer de profil » en bas de la barre latérale y ramène. |
-| `accounts` (défaut si `JOBHUNT_DEBUG=0`) | une instance partagée | **Connexion** (e-mail ou identifiant + mot de passe) et **Inscription**, qui crée le compte et enchaîne sur le parcours Bienvenue. Un visiteur anonyme peut aussi commencer par le parcours : le compte se crée juste avant le CV. `JOBHUNT_SIGNUP_OPEN=0` ferme les inscriptions et renvoie un visiteur anonyme vers la connexion ; un compte créé autrement (`createsuperuser`) passe par le parcours à sa première visite. |
+| `accounts` (défaut si `JOBHUNT_DEBUG=0`) | une instance partagée | En production, **Connexion** par lien e-mail et **Inscription** avec confirmation de l'adresse avant de créer le compte. Un visiteur anonyme peut aussi commencer le parcours : la confirmation est demandée juste avant le CV et conserve ses réponses. Les liens sont valables 15 minutes et utilisables une seule fois. `JOBHUNT_SIGNUP_OPEN=0` ferme les inscriptions ; un compte créé autrement (`createsuperuser`) se connecte par e-mail puis passe par le parcours à sa première visite. Les mots de passe restent possibles en développement, hors essai explicite du parcours par e-mail. |
 
 ### Le parcours Bienvenue
 
@@ -141,10 +145,11 @@ Un écran par question, dans l'ordre : situation, outils d'IA déjà essayés,
 principale difficulté, attentes, postes visés, secteurs, expérience, formation,
 type de contrat, mode de travail, villes et rayon (sauf en télétravail), salaire
 minimum, horizon, puis un bilan à relire. Le nom (ou le compte, en mode
-`accounts`) est demandé ensuite, juste avant le CV : c'est le premier moment où
-une ligne doit exister en base. Les réponses restent en session jusqu'au dernier
-écran — un parcours interrompu reprend au même endroit sur le même navigateur,
-et repart du début ailleurs, le nom déjà connu.
+`accounts`) est demandé ensuite, juste avant le CV. En production, le compte
+est créé après confirmation de l'adresse e-mail ; les réponses sont conservées
+avec cette demande et reprises même si le lien est ouvert sur un autre appareil.
+En dehors de cette confirmation, un parcours interrompu reprend au même endroit
+sur le même navigateur grâce à la session.
 
 Ce que chaque réponse alimente :
 
@@ -205,7 +210,7 @@ désactivé. La page n'attend aucun appel réseau. Les reprises, les inscription
 déjà collectées et les réglages locaux sont décrits dans
 [E-mails asynchrones](docs/email-delivery.md).
 
-Déploiement : appliquer les migrations jusqu'à `accounts.0008_launchemailjob`
+Déploiement : appliquer les migrations jusqu'à `accounts.0009`
 et celles de `django_q` avant de servir cette version de l'application.
 
 ### Reprise d'une base existante
@@ -219,16 +224,13 @@ candidatures attendent, puis complète ce compte — rien n'est à ressaisir.
 
 ### Passer d'une base locale au mode comptes
 
-Un profil local n'a pas de mot de passe. Avant de basculer `JOBHUNT_AUTH_MODE`
-sur `accounts`, ouvre **Réglages**, renseigne un e-mail et définis un mot de
-passe ; sinon, en ligne de commande :
-
-```bash
-uv run manage.py changepassword <identifiant>
-```
-
-L'identifiant est affiché dans Réglages (`local` pour un compte issu de la
-migration).
+Avant de basculer `JOBHUNT_AUTH_MODE` sur `accounts`, ouvre **Réglages** et
+renseigne une adresse e-mail réelle, accessible et unique pour chaque profil.
+Configure le relais SMTP, `JOBHUNT_PUBLIC_URL` et le worker `qcluster`, puis
+demande un lien de connexion pour confirmer l'adresse et retrouver le compte.
+En production, aucun mot de passe n'est accepté ; la migration `accounts.0009`
+supprime les anciens hachages et les sessions historiques ne sont plus admises.
+Voir les [étapes de bascule et l'essai local](docs/email-delivery.md).
 
 ### En production
 
@@ -237,8 +239,8 @@ Pose `JOBHUNT_SECRET_KEY`, `JOBHUNT_ALLOWED_HOSTS` et
 sont marqués *Secure* par défaut en mode comptes). Les documents ne sont
 jamais servis depuis `media/` par leur chemin : chaque téléchargement passe
 par une vue qui vérifie le propriétaire — ne pas exposer `media/` avec le
-serveur web. Il n'y a pas de réinitialisation de mot de passe par e-mail :
-`changepassword` en tient lieu.
+serveur web. La connexion et les changements d'adresse reposent sur des liens
+e-mail de confirmation ; aucun mot de passe n'est conservé dans la base active.
 Sur PostgreSQL, le serveur se connecte avec le rôle applicatif et les
 migrations avec le propriétaire : voir [Isolation des données](#isolation-des-données-rls).
 

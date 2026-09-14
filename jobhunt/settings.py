@@ -40,6 +40,9 @@ CSRF_TRUSTED_ORIGINS = _env_list(
 # a single profile is signed in automatically. ``accounts``: sign-in and
 # sign-up forms, for a shared deployment. Local by default in development.
 AUTH_MODE = os.environ.get("JOBHUNT_AUTH_MODE", "local" if DEBUG else "accounts")
+# Production never accepts passwords. Development can exercise the same flow.
+PASSWORDLESS_AUTH = not DEBUG or IS_SAAS_PRODUCTION or os.environ.get("JOBHUNT_PASSWORDLESS_AUTH", "0") == "1"
+AUTHENTICATION_BACKENDS = ["accounts.backends.AccountsBackend"]
 # Accounts mode only: whether anyone may create an account.
 SIGNUP_OPEN = os.environ.get("JOBHUNT_SIGNUP_OPEN", "1") == "1"
 LOGIN_URL = "accounts:login"
@@ -58,6 +61,9 @@ CSRF_COOKIE_SECURE = _secure_cookies
 # overwrites the header — never set it for a server reachable directly.
 if os.environ.get("JOBHUNT_BEHIND_PROXY", "0") == "1":
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# Azure's front end overwrites Client-IP. Never trust forwarded client headers
+# on a local/direct server merely because a caller supplies them.
+TRUST_AZURE_CLIENT_IP = os.environ.get("JOBHUNT_BEHIND_PROXY", "0") == "1" and bool(os.environ.get("WEBSITE_INSTANCE_ID"))
 # An HTMX request with a stale token (a sign-in elsewhere rotated it) gets a
 # 403 that reloads its page instead of a silent failure.
 CSRF_FAILURE_VIEW = "accounts.views.csrf_failure"
@@ -283,7 +289,10 @@ if not DEBUG:
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
-            "console": {"format": "[{levelname}] {name}: {message}", "style": "{"},
+            "console": {
+                "()": "accounts.logging.AuthLinkRedactingFormatter",
+                "format": "[{levelname}] {name}: {message}", "style": "{",
+            },
         },
         "handlers": {
             "console": {"class": "logging.StreamHandler", "formatter": "console"},

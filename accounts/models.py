@@ -20,6 +20,7 @@ exists once onboarding (or ``services.search_profile_for``) wrote it.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -112,6 +113,40 @@ class LaunchEmailJob(models.Model):
         return f"{self.get_kind_display()} #{self.pk}"
 
 
+class EmailSignInLink(models.Model):
+    """Pending identity proof. The signature needed to redeem it is never stored."""
+
+    if TYPE_CHECKING:
+        user_id: int | None
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE)
+    purpose = models.CharField(max_length=10, choices=[("signup", "Inscription"), ("login", "Connexion"), ("change", "Changement d'e-mail")])
+    email = models.EmailField()
+    original_email = models.EmailField(blank=True)
+    display_name = models.CharField(max_length=120, blank=True)
+    onboarding_data = models.JSONField(default=dict, blank=True)
+    next_path = models.CharField(max_length=2048, blank=True)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(default=timezone.now)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    sending_at = models.DateTimeField(null=True, blank=True)
+
+
+class EmailLinkRateLimit(models.Model):
+    """Shared fixed-window counters; keys contain keyed digests, never addresses/IPs."""
+
+    key = models.CharField(primary_key=True, max_length=100)
+    # No account is bound before sign-in; the unbound policy also protects
+    # these counters from queries made in an authenticated tenant context.
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE)
+    count = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField()
+
+
 class Profile(models.Model):
     if TYPE_CHECKING:
         user_id: int
@@ -140,6 +175,8 @@ class Profile(models.Model):
         "et l'anonymisation le masque partout ailleurs.",
     )
     onboarded_at = models.DateTimeField("profil complété le", null=True, blank=True)
+    verified_email = models.EmailField(blank=True, default="")
+    email_verified_at = models.DateTimeField(null=True, blank=True)
     launch_email = models.EmailField("e-mail pour le lancement", blank=True, default="")
     launch_plan = models.CharField(
         "offre qui m'intéresse", max_length=12, choices=LaunchPlan.choices, blank=True, default="",

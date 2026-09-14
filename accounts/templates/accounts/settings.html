@@ -133,7 +133,8 @@
       </form>
     </section>
 
-    <div class="cols cols--2" style="align-items:start">
+    <div class="cols{% if not auth_passwordless %} cols--2{% endif %}" style="align-items:start">
+      {% if not auth_passwordless %}
       <section class="panel" id="mot-de-passe">
         <div class="panel__head">
           <span class="eyebrow">{% if has_password %}Mot de passe{% else %}Définir un mot de passe{% endif %}</span>
@@ -161,6 +162,7 @@
           </div>
         </form>
       </section>
+      {% endif %}
 
       <section class="panel t-red" id="supprimer">
         <div class="panel__head"><span class="eyebrow">Supprimer le compte</span></div>

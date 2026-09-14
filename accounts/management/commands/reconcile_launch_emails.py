@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 
 from accounts.email_delivery import reconcile_user
+from accounts.magic_links import reconcile_sign_in_links
 
 
 class Command(BaseCommand):
@@ -29,6 +30,7 @@ class Command(BaseCommand):
                 count = sum(reconcile_user(
                     user_id, backfill=options["backfill"], retry_failed=options["retry_failed"],
                 ) for user_id in users.iterator(chunk_size=500))
+                count += reconcile_sign_in_links(user_id=options["owner_id"])
                 self.stdout.write(f"{count} traitement(s) e-mail mis en file.")
                 if not options["watch"]:
                     break

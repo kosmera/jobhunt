@@ -182,6 +182,16 @@ def onboarding_step(request, slug: str):
             form = _form_for(step, request, run, user, data=request.POST, files=request.FILES, upload=action == "upload")
             if form is not None and not form.is_valid():
                 return _render(request, step, run, ctx, user, form)
+            if step.kind is Kind.GATE and user is None and conf.passwordless():
+                from accounts.views import queue_email_link
+
+                assert form is not None
+                new_run = machine.apply(run, event, ctx, at=step.id, answer={"display_name": form.cleaned_data["display_name"]})
+                queue_email_link(
+                    request, form.cleaned_data["email"], purpose="signup", display_name=form.cleaned_data["display_name"],
+                    onboarding_data=new_run.to_json(), next_path=reverse("accounts:onboarding"),
+                )
+                return _redirect(request, reverse("accounts:email_link_sent"))
             answer = _answer(step, form, request, ctx, user)
             new_run = machine.apply(run, event, ctx, at=step.id, answer=answer)
             if step.id == "identity":

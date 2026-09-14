@@ -5,8 +5,8 @@ Two modes, chosen by ``settings.AUTH_MODE``:
 - ``local`` — a trusted machine. No password anywhere: the first visit creates
   the profile, a single profile is signed in automatically, several profiles
   are picked from a list.
-- ``accounts`` — a shared deployment. Sign-in and sign-up forms, passwords,
-  the usual.
+- ``accounts`` — a shared deployment. Verified email links in production;
+  development may keep password forms for existing fixtures.
 
 Everything mode-specific goes through these helpers so the rule lives in
 one place.
@@ -22,6 +22,10 @@ ACCOUNTS = "accounts"
 
 def is_local() -> bool:
     return settings.AUTH_MODE == LOCAL
+
+
+def passwordless() -> bool:
+    return not is_local() and (settings.PASSWORDLESS_AUTH or settings.IS_SAAS_PRODUCTION)
 
 
 def premium_by_default() -> bool:

@@ -15,6 +15,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 
+from accounts import conf
 from accounts.models import (
     MAX_CITIES,
     MAX_JOB_TITLES,
@@ -177,6 +178,16 @@ class LoginForm(AuthenticationForm):
         return holders[0] if len(holders) == 1 else value
 
 
+class EmailLoginForm(forms.Form):
+    email = forms.EmailField(
+        label="E-mail", max_length=EMAIL_MAX_LENGTH,
+        widget=forms.EmailInput(attrs={"class": "input", "autocomplete": "email", "autofocus": True}),
+    )
+
+    def clean_email(self):
+        return self.cleaned_data["email"].strip().lower()
+
+
 class SignupForm(forms.Form):
     display_name = forms.CharField(
         label="Comment t'appeler ?",
@@ -201,6 +212,13 @@ class SignupForm(forms.Form):
         widget=forms.PasswordInput(attrs={"class": "input", "autocomplete": "new-password"}),
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if conf.passwordless():
+            self.fields.pop("password1")
+            self.fields.pop("password2")
+            self.fields["email"].help_text = "Confirme cet e-mail pour créer ton compte et te connecter."
+
     def clean_display_name(self) -> str:
         value = self.cleaned_data["display_name"].strip()
         if not value:
@@ -209,7 +227,7 @@ class SignupForm(forms.Form):
 
     def clean_email(self) -> str:
         email = self.cleaned_data["email"].strip().lower()
-        if email_is_taken(email):
+        if not conf.passwordless() and email_is_taken(email):
             raise forms.ValidationError("Un compte existe déjà avec cet e-mail.")
         return email
 
@@ -233,6 +251,8 @@ class SignupForm(forms.Form):
         return cleaned
 
     def save(self):
+        if conf.passwordless():
+            raise ValueError("La création du compte exige un lien e-mail confirmé.")
         email = self.cleaned_data["email"]
         user = User.objects.create_user(
             username=email, email=email, password=self.cleaned_data["password1"]
@@ -268,6 +288,9 @@ class ProfileForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["display_name"].required = True
         self.fields["email"].initial = self.instance.user.email
+        if conf.passwordless():
+            self.fields["email"].required = True
+            self.fields["email"].help_text = "Un changement d'adresse doit être confirmé par e-mail. Ton adresse actuelle reste active jusque-là."
 
     def clean_display_name(self) -> str:
         value = self.cleaned_data["display_name"].strip()
@@ -286,7 +309,7 @@ class ProfileForm(forms.ModelForm):
         user = profile.user
         previous = user.email
         email = self.cleaned_data["email"]
-        if email != previous:
+        if email != previous and not conf.passwordless():
             user.email = email
             # An account signed up with its e-mail as username keeps the two in step,
             # otherwise the old address would stay the login and the new one would not work.

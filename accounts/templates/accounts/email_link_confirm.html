@@ -1,0 +1,24 @@
+{% extends "accounts/base_auth.html" %}
+
+{% block title %}{% if valid %}Confirmer{% else %}Lien indisponible{% endif %} — tonjobidéal{% endblock %}
+{% block auth_eyebrow %}{% if email_change %}Ton e-mail{% elif signup %}Ton compte{% else %}Connexion{% endif %}{% endblock %}
+{% block auth_title %}{% if valid %}{% if email_change %}Confirme ta nouvelle adresse{% elif signup %}Confirme ton inscription{% else %}Retrouve ton espace{% endif %}{% else %}Ce lien n'est plus disponible{% endif %}{% endblock %}
+{% block auth_lede %}{% if valid %}{% if email_change %}Confirme que cette adresse t'appartient. Elle servira ensuite à te connecter à ton compte.{% elif signup %}Il reste une étape : confirme ton adresse e-mail pour créer ton compte et continuer.{% else %}Confirme ci-dessous pour te connecter à ton compte.{% endif %}{% else %}Ce lien a expiré, a déjà été utilisé ou n'est pas valide. Demande un nouveau lien pour continuer.{% endif %}{% endblock %}
+
+{% block auth_body %}
+  {% if valid %}
+    <p class="prose prose--tight" style="margin-bottom:1rem;overflow-wrap:anywhere;">{% if email_change %}Nouvelle adresse{% else %}Adresse du compte{% endif %} : <strong>{{ email }}</strong></p>
+    <form method="post" class="stack">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--primary btn--block">
+        <svg aria-hidden="true"><use href="#i-check"></use></svg>
+        {% if email_change %}Confirmer mon adresse e-mail{% elif signup %}Confirmer mon e-mail et créer mon compte{% else %}Me connecter{% endif %}
+      </button>
+    </form>
+  {% else %}
+    <a href="{% url 'accounts:login' %}" class="btn btn--primary btn--block">Demander un nouveau lien</a>
+    {% if signup_open %}<a href="{% url 'accounts:onboarding' %}" class="btn btn--block">Reprendre mon inscription</a>{% endif %}
+  {% endif %}
+{% endblock %}
+
+{% block auth_foot %}<a href="{% url 'accounts:login' %}">Revenir à la connexion</a>.{% endblock %}

@@ -5,6 +5,7 @@ from unittest import mock
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import Profile
 from accounts.onboarding import store
@@ -22,7 +23,10 @@ def step(slug):
 @mock.patch("accounts.onboarding.services.cv_analyzer", new=lambda: None)
 class LaunchInterestFlowTests(TestCase):
     def setUp(self):
-        self.user = make_user("Camille", email="camille@example.org", onboarded=False)
+        self.user = make_user(
+            "Camille", email="camille@example.org", onboarded=False,
+            verified_email="camille@example.org", email_verified_at=timezone.now(),
+        )
         self.client.force_login(self.user)
 
     def interest(self, **overrides):

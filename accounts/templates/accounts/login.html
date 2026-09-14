@@ -3,17 +3,21 @@
 {% block title %}Connexion — tonjobidéal{% endblock %}
 {% block auth_eyebrow %}Connexion{% endblock %}
 {% block auth_title %}Content de te revoir{% endblock %}
-{% block auth_lede %}Ton suivi de candidatures t'attend derrière ce formulaire.{% endblock %}
+{% block auth_lede %}{% if auth_passwordless %}Entre ton e-mail pour recevoir un lien de connexion. Aucun mot de passe à retenir.{% else %}Ton suivi de candidatures t'attend derrière ce formulaire.{% endif %}{% endblock %}
 
 {% block auth_body %}
   <form method="post" class="stack" style="gap:.2rem" novalidate>
     {% csrf_token %}
     {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
     {% for error in form.non_field_errors %}<div class="flash t-red">{{ error }}</div>{% endfor %}
-    {% include "tracker/partials/field.html" with field=form.username %}
-    {% include "tracker/partials/field.html" with field=form.password %}
+    {% if auth_passwordless %}
+      {% include "tracker/partials/field.html" with field=form.email %}
+    {% else %}
+      {% include "tracker/partials/field.html" with field=form.username %}
+      {% include "tracker/partials/field.html" with field=form.password %}
+    {% endif %}
     <button type="submit" class="btn btn--primary btn--block" style="margin-top:.4rem">
-      <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg> Se connecter
+      <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg> {% if auth_passwordless %}Recevoir mon lien de connexion{% else %}Se connecter{% endif %}
     </button>
   </form>
 {% endblock %}

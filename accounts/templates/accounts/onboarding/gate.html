@@ -8,7 +8,7 @@
       {% if variant == "accounts_signup" %}
         <span class="eyebrow onb__eyebrow">Ton compte</span>
         <legend class="onb__title">Garde tes réponses : crée ton compte</legend>
-        <p class="onb__lede">Un nom, un e-mail, un mot de passe. Tes candidatures ne sont visibles que de toi.</p>
+        <p class="onb__lede">{% if auth_passwordless %}Un nom et un e-mail suffisent. Confirme ton adresse avec le lien reçu par e-mail pour créer ton compte et retrouver tes réponses.{% else %}Un nom, un e-mail, un mot de passe. Tes candidatures ne sont visibles que de toi.{% endif %}</p>
       {% elif variant == "local_claim" %}
         <span class="eyebrow onb__eyebrow">Reprise du suivi</span>
         <legend class="onb__title">Comment t'appeler ?</legend>
@@ -26,13 +26,15 @@
       {% include "tracker/partials/field.html" with field=form.display_name %}
       {% if variant == "accounts_signup" %}
         {% include "tracker/partials/field.html" with field=form.email %}
-        {% include "tracker/partials/field.html" with field=form.password1 %}
-        {% include "tracker/partials/field.html" with field=form.password2 %}
+        {% if not auth_passwordless %}
+          {% include "tracker/partials/field.html" with field=form.password1 %}
+          {% include "tracker/partials/field.html" with field=form.password2 %}
+        {% endif %}
       {% endif %}
     </fieldset>
     <div class="onb__actions">
       <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">
-        {% if variant == "accounts_signup" %}Créer mon compte{% else %}Continuer{% endif %}
+        {% if variant == "accounts_signup" %}{% if auth_passwordless %}Recevoir mon lien de confirmation{% else %}Créer mon compte{% endif %}{% else %}Continuer{% endif %}
       </button>
       {% if variant == "accounts_signup" %}<p class="onb__note">Déjà un compte ? <a href="{{ login_url }}">Se connecter</a>.</p>{% endif %}
     </div>

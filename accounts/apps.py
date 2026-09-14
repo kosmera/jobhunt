@@ -16,6 +16,10 @@ class AccountsConfig(AppConfig):
         register("accounts.Preferences", owner="user")
         register("accounts.SearchProfile", owner="user")
         register("accounts.LaunchEmailJob", owner="user")
+        # Like auth.User, identity requests must be accessible before login.
+        # A signed UUID is required by the redemption view; IDs alone are inert.
+        register("accounts.EmailSignInLink", owner="user", unbound_visible=True)
+        register("accounts.EmailLinkRateLimit", owner="user", unbound_visible=True)
         # The shared queue carries job/account IDs, never recipients or CVs.
         from rls import exempt
         for label in ("OrmQ", "Task", "Schedule"):

@@ -25,7 +25,7 @@ from urllib.parse import urlsplit, urlunsplit
 from django.contrib.auth import get_user_model
 from django.contrib.auth.middleware import LoginRequiredMiddleware
 from django.contrib.auth.views import redirect_to_login
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import resolve_url
 from django.urls import reverse
 from django.utils.functional import SimpleLazyObject
@@ -75,6 +75,12 @@ class AccountsMiddleware(LoginRequiredMiddleware):
         # Django's admin login opts out of the account gate. In local mode,
         # use the same passwordless entry/chooser as the rest of the app.
         match = request.resolver_match
+        if conf.passwordless() and match and match.app_name == "admin" and match.url_name == "login":
+            return self._redirect(request, reverse("accounts:login") + "?next=" + reverse("admin:index"))
+        if conf.passwordless() and match and match.app_name == "admin" and match.url_name in {
+            "password_change", "password_change_done", "auth_user_password_change",
+        }:
+            raise Http404
         if (
             conf.is_local() and not request.user.is_authenticated
             and match and match.app_name == "admin" and match.url_name == "login"

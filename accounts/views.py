@@ -4,6 +4,7 @@ follows sign-up (and greets a local machine) lives in ``accounts.onboarding``.""
 from __future__ import annotations
 
 from typing import Any
+from ipaddress import ip_address
 
 from django.conf import settings
 from django.contrib import auth, messages
@@ -14,11 +15,13 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.csrf import csrf_failure as django_csrf_failure
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
 from accounts import conf
 from accounts.forms import (
     DeleteAccountForm,
+    EmailLoginForm,
     LoginForm,
     PreferencesForm,
     ProfileForm,
@@ -49,6 +52,35 @@ def safe_next(request) -> str:
     return ""
 
 
+def email_client_ip(request):
+    candidates = [request.META.get("REMOTE_ADDR", "")]
+    if settings.TRUST_AZURE_CLIENT_IP:
+        candidates.insert(0, request.META.get("HTTP_CLIENT_IP", ""))
+    for candidate in candidates:
+        try:
+            return str(ip_address(candidate))
+        except ValueError:
+            # Azure may append a source port; bracketed IPv6 stays unambiguous.
+            host, separator, port = candidate.rpartition(":")
+            if separator and port.isdecimal() and (host.startswith("[") or host.count(":") == 0):
+                try:
+                    return str(ip_address(host.strip("[]")))
+                except ValueError:
+                    pass
+    return "unknown"
+
+
+def queue_email_link(request, email, **values):
+    from accounts.magic_links import request_link
+
+    pending = {"email": email, **values}
+    user = pending.pop("user", None)
+    if user is not None:
+        pending["user_id"] = user.pk
+    request.session["pending_email_link"] = pending
+    request_link(email, ip=email_client_ip(request), **values)
+
+
 @login_not_required
 @require_http_methods(["GET", "POST"])
 def login_view(request):
@@ -56,6 +88,13 @@ def login_view(request):
         return redirect(safe_next(request) or settings.LOGIN_REDIRECT_URL)
     if conf.is_local():
         return _local_chooser(request)
+
+    if conf.passwordless():
+        form = EmailLoginForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            queue_email_link(request, form.cleaned_data["email"], next_path=safe_next(request))
+            return redirect("accounts:email_link_sent")
+        return render(request, "accounts/login.html", {"form": form, "next": safe_next(request)})
 
     form = LoginForm(request, data=request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -115,12 +154,97 @@ def signup(request):
 
     form = SignupForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
+        if conf.passwordless():
+            queue_email_link(
+                request, form.cleaned_data["email"], purpose="signup", display_name=form.cleaned_data["display_name"],
+                next_path=reverse("accounts:onboarding"),
+            )
+            return redirect("accounts:email_link_sent")
         user = form.save()
         auth.login(request, user, backend=LOCAL_BACKEND)
         # The account exists and is named; the questionnaire fills the rest and
         # opens the dashboard with the welcome flash.
         return redirect("accounts:onboarding")
     return render(request, "accounts/signup.html", {"form": form})
+
+
+@login_not_required
+@onboarding_not_required
+@never_cache
+@require_http_methods(["GET"])
+def email_link_sent(request):
+    pending = request.session.get("pending_email_link", {})
+    return render(request, "accounts/email_link_sent.html", {
+        "can_resend": bool(pending),
+        "onboarding_url": reverse("accounts:onboarding") if pending.get("purpose") == "signup" else "",
+    })
+
+
+@login_not_required
+@onboarding_not_required
+@never_cache
+@require_POST
+def email_link_resend(request):
+    pending = dict(request.session.get("pending_email_link", {}))
+    if pending and conf.passwordless():
+        owner_id = pending.pop("user_id", None)
+        if owner_id is not None:
+            if not request.user.is_authenticated or request.user.pk != owner_id:
+                return redirect("accounts:login")
+            pending["user"] = request.user
+        queue_email_link(request, **pending)
+    return redirect("accounts:email_link_sent")
+
+
+@login_not_required
+@onboarding_not_required
+@never_cache
+@require_http_methods(["GET", "POST"])
+def email_link_confirm(request, token):
+    from accounts.magic_links import consume_link, read_link
+    from accounts.onboarding import store
+
+    link = read_link(token)
+    if request.method == "POST" and link is not None:
+        # An address-change proof belongs to the already authenticated owner.
+        # Ordinary sign-in/signup links can be used on another device.
+        if link.purpose == "change" and (
+            not request.user.is_authenticated or request.user.pk != link.user_id
+        ):
+            messages.info(request, "Connecte-toi avec ton adresse actuelle avant de confirmer ce changement.")
+            return redirect(f"{reverse('accounts:login')}?next={reverse('accounts:settings')}")
+        result = consume_link(token)
+        if result is not None:
+            user, link = result
+            # Never carry a questionnaire belonging to a different account
+            # across sign-in. Signup restores only the confirmed request's data.
+            store.clear(request)
+            request.session.pop("pending_email_link", None)
+            auth.login(request, user, backend=LOCAL_BACKEND)
+            if link.purpose == "signup" and link.onboarding_data:
+                request.session[store.SESSION_KEY] = link.onboarding_data
+            if link.purpose == "change":
+                messages.success(request, "Nouvelle adresse e-mail confirmée.")
+                destination = reverse("accounts:settings")
+            elif not profile_for(user).is_onboarded:
+                destination = reverse("accounts:onboarding")
+            else:
+                destination = link.next_path
+                if not url_has_allowed_host_and_scheme(
+                    destination, allowed_hosts={request.get_host()}, require_https=request.is_secure(),
+                ):
+                    destination = settings.LOGIN_REDIRECT_URL
+            return redirect(destination or settings.LOGIN_REDIRECT_URL)
+        link = None
+    response = render(request, "accounts/email_link_confirm.html", {
+        "valid": link is not None,
+        "signup": link is not None and link.purpose == "signup",
+        "email_change": link is not None and link.purpose == "change",
+        "email": link.email if link is not None else "",
+    }, status=200 if link is not None else 400)
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
 
 
 @login_not_required
@@ -156,6 +280,8 @@ SECTIONS = ("profil", "recherche", "preferences", "mot-de-passe", "supprimer")
 def settings_view(request, section: str | None = None):
     if section is not None and section not in SECTIONS:
         raise Http404
+    if conf.passwordless() and (section == "mot-de-passe" or request.POST.get("section") == "mot-de-passe"):
+        raise Http404
     if request.method == "GET" and section is not None:
         return redirect("accounts:settings")
 
@@ -166,7 +292,7 @@ def settings_view(request, section: str | None = None):
         "profile": ProfileForm(instance=profile),
         "search": SearchProfileForm(instance=search),
         "preferences": PreferencesForm(instance=preferences),
-        "password": password_form(request.user),
+        "password": None if conf.passwordless() else password_form(request.user),
         "delete": DeleteAccountForm(expected=profile.display_name),
     }
 
@@ -176,6 +302,11 @@ def settings_view(request, section: str | None = None):
             form = forms["profile"] = ProfileForm(request.POST, instance=profile)
             if form.is_valid():
                 form.save()
+                if conf.passwordless() and form.cleaned_data["email"] != request.user.email:
+                    queue_email_link(
+                        request, form.cleaned_data["email"], purpose="change", user=request.user,
+                    )
+                    messages.info(request, "Confirme la nouvelle adresse avec le lien reçu par e-mail. Ton adresse actuelle reste active.")
                 messages.success(request, "Profil enregistré.")
                 return redirect("accounts:settings")
         elif section == "recherche":

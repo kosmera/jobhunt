@@ -57,6 +57,20 @@ def check_auth_mode(app_configs, **kwargs):
 
 
 @register("accounts")
+def check_passwordless(app_configs, **kwargs):
+    if not conf.passwordless():
+        return []
+    problems = []
+    if settings.EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
+        problems.append(Error("Les liens de connexion nécessitent un relais SMTP (JOBHUNT_EMAIL_HOST).", id="accounts.E006"))
+    if not settings.DEBUG and not settings.JOBHUNT_PUBLIC_URL.startswith("https://"):
+        problems.append(Error("Les liens de connexion en production nécessitent JOBHUNT_PUBLIC_URL en HTTPS.", id="accounts.E007"))
+    if settings.SECRET_KEY.startswith("django-insecure-") and not settings.DEBUG:
+        problems.append(Error("Les liens de connexion en production nécessitent une clé JOBHUNT_SECRET_KEY privée.", id="accounts.E008"))
+    return problems
+
+
+@register("accounts")
 def check_tls_origin(app_configs, **kwargs):
     """Behind TLS, Django only trusts an https origin it was told about."""
     if (

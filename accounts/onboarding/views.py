@@ -12,7 +12,7 @@ tab, a forged form — becomes a message and a redirect, never a corrupted run.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from django.contrib import auth, messages
@@ -26,6 +26,7 @@ from django.views.decorators.cache import never_cache
 
 from accounts import conf
 from accounts.forms import SignupForm
+from accounts.models import HelpWanted
 from accounts.middleware import local_auto_sign_in, onboarding_not_required
 from accounts.onboarding import services, store
 from accounts.onboarding.flow import (
@@ -112,7 +113,13 @@ def _prepare(request) -> Prepared | HttpResponse:
         # The account that crossed the gate is gone (deactivated, deleted) while
         # the browser kept its session: back to the gate, answers kept.
         run = machine.rewind_to(run, "identity")
-    return Prepared(user, run or machine.fresh(), services.build_context(user), expired)
+    ctx = services.build_context(user)
+    if run is not None and machine.current(run, ctx) == machine.terminal:
+        # A signup link/session from the previous flow may resume at CV or plan.
+        # Those steps now live in the workspace: let its owner confirm the
+        # saved questionnaire on the review POST, never complete on a GET.
+        run = machine.rewind_to(run, machine.review)
+    return Prepared(user, run or machine.fresh(), ctx, expired)
 
 
 @login_not_required
@@ -189,7 +196,7 @@ def onboarding_step(request, slug: str):
                 new_run = machine.apply(run, event, ctx, at=step.id, answer={"display_name": form.cleaned_data["display_name"]})
                 queue_email_link(
                     request, form.cleaned_data["email"], purpose="signup", display_name=form.cleaned_data["display_name"],
-                    onboarding_data=new_run.to_json(), next_path=reverse("accounts:onboarding"),
+                    onboarding_data=new_run.to_json(), next_path=reverse("tracker:dashboard"),
                 )
                 return _redirect(request, reverse("accounts:email_link_sent"))
             answer = _answer(step, form, request, ctx, user)
@@ -206,7 +213,7 @@ def onboarding_step(request, slug: str):
         return _redirect(request, step_url(current))
 
     if new_run.state == machine.terminal:
-        assert user is not None  # the gate precedes the plan on every path (check() + guard)
+        assert user is not None  # anonymous signup completes only after email proof
         profile = finish_onboarding(user, new_run.answers)
         store.clear(request)
         messages.success(request, WELCOME.format(name=profile.display_name))
@@ -262,7 +269,11 @@ def _form_for(step: Step, request, run: Run, user, *, data=None, files=None, upl
         )
     if kind is Kind.GATE:
         if services.gate_variant(user, services.build_context(user)) == "accounts_signup":
-            return SignupForm(data)
+            form = SignupForm(data)
+            if conf.passwordless():
+                # Let the visitor read their summary before the account form.
+                form.fields["display_name"].widget.attrs.pop("autofocus", None)
+            return form
         known = profile_for(user).display_name if user is not None else ""
         return IdentityForm(data, initial={"display_name": answers.get("display_name") or known})
     if kind is Kind.FILE:
@@ -335,8 +346,15 @@ def _render(request, step: Step, run: Run, ctx: Context, user, form, status: int
         "answers": run.answers,
         "options": OPTIONS.get(step.id, ()),
         "everything": EVERYTHING,
+        "final_signup": ctx.account_at_end and user is None,
     }
     kind = step.kind
+    if step.id == "help" and ctx.account_at_end:
+        context["options"] = tuple(
+            replace(option, label="Savoir si une offre me correspond — copilote en préparation")
+            if option.value == HelpWanted.FIT else option
+            for option in OPTIONS[step.id]
+        )
     if step.id == "welcome_back" or kind is Kind.GATE:
         context["waiting"] = services.waiting_counts(user) if user is not None else {"applications": 0, "documents": 0}
     if kind is Kind.CHIPS:
@@ -369,6 +387,12 @@ def _render(request, step: Step, run: Run, ctx: Context, user, form, status: int
     elif kind is Kind.GATE:
         context["variant"] = services.gate_variant(user, ctx)
         context["login_url"] = f"{reverse('accounts:login')}?next={reverse('accounts:onboarding')}"
+        if ctx.account_at_end and context["variant"] == "accounts_signup":
+            context["preview_rows"] = [
+                row for row in services.review_rows(run.answers, ctx)
+                if row.slug in {"postes", "mode", "villes", "horizon"} and not row.skipped
+            ]
+            return render(request, "accounts/onboarding/signup_preview.html", context, status=status)
     elif kind is Kind.FILE:
         card = services.cv_card(user, run.answers, ctx) if user is not None else None
         replacing = request.GET.get("remplacer") == "1"

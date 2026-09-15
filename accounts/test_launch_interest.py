@@ -19,7 +19,10 @@ def step(slug):
     return reverse("accounts:onboarding_step", args=[slug])
 
 
-@override_settings(AUTH_MODE="accounts", SIGNUP_OPEN=True, IS_SAAS_PRODUCTION=True, LAUNCH_INTEREST_ENABLED=True)
+@override_settings(
+    AUTH_MODE="accounts", SIGNUP_OPEN=True, IS_SAAS_PRODUCTION=False,
+    PASSWORDLESS_AUTH=False, LAUNCH_INTEREST_ENABLED=True,
+)
 @mock.patch("accounts.onboarding.services.cv_analyzer", new=lambda: None)
 class LaunchInterestFlowTests(TestCase):
     def setUp(self):

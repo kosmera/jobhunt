@@ -20,7 +20,7 @@ sectors (icon grid, « Voir plus », « tous les secteurs »), experience and
 education (auto-advance on a pointer click), contract types, work mode,
 cities and radius (skipped for remote work), minimum salary (period toggle,
 slider mirrored to the number input), start horizon, a review with pencils,
-the identity gate, the CV, a plan.
+the identity gate and, for local/development accounts, the CV and a plan.
 
 What was dropped, on purpose: the social-proof screen, the cover-letter
 modal, the « finding your matches » scan, the matches modal and the paywall.
@@ -45,9 +45,38 @@ Only the upload has a measured percentage; processing is indeterminate.
 Failed or expired runs keep the file and offer a replacement; unavailable
 polling offers a refresh without resubmitting the upload.
 
-### Launch interest — September 14, 2026
+### Final account invitation — September 15, 2026
 
-In accounts mode, the final `/bienvenue/plan/` screen presents the free and
+For anonymous visitors in the passwordless accounts flow, the questionnaire and
+editable review come before any name or email field. The last identity screen
+shows the actual selected roles, work mode, cities/radius and start horizon,
+followed by an invitation to create a free account. Skipped fields never receive
+inferred values. There are no generated job results, scores, prices or
+subscription choices. The overview is visible before the account form; the form
+does not autofocus, so opening the page starts at the summary.
+
+The summary is the main visual: the chosen role names in Newsreader, with a
+green rule and the remaining preferences in Archivo. The existing app tokens
+provide forest green, mint and the dark-theme equivalents. Below it, the free
+workspace is labelled « Disponible maintenant » and the proposed copilot
+functions « En préparation ». Name and email are the final action. The account
+is created only after email confirmation, then opens the dashboard with the
+saved preferences. Creating an account does not grant marketing consent.
+
+The CV and old plan screen are skipped in this flow. A new empty dashboard
+links to Documents with « Ajouter mon CV » and labels this action optional.
+Local and development password accounts retain their previous sequence. The
+landing page's new-visitor actions and the passwordless login page's signup
+link enter the questionnaire directly.
+
+On mobile, the summary, availability descriptions and form fields stack. The
+submit action stays in the document flow, with no overlay over the summary or
+validation errors. Every field has a visible label, and the summary's link
+returns to the editable review. No new fonts, assets or animation are needed.
+
+### Launch interest — September 14, 2026 (legacy account flow)
+
+In the legacy accounts flow, the final `/bienvenue/plan/` screen presents the free and
 planned Premium offers, then an optional launch-email signup. Local mode
 keeps its existing action plan. Joining or skipping the list in accounts mode
 opens the free workspace; choosing Premium records interest without buying
@@ -97,7 +126,7 @@ that into a message and a redirect. `Machine.check()` runs at import of
 `flow.py`: unique ids and slugs, a total acyclic chain ending on a single
 unguarded terminal, the review before the terminal, disjoint answer keys, skip
 values matching answer keys. `accounts/test_onboarding_machine.py` enumerates
-the sixteen combinations of the four guards and proves reachability,
+the thirty-two combinations of the five guard inputs and proves reachability,
 totality and termination in each.
 
 | # | id | slug | guard | kind |
@@ -121,13 +150,20 @@ totality and termination in each.
 | 16 | timeline | horizon | — | single |
 | 17 | review | bilan | — | review |
 | 18 | identity | identite | anonymous, or no display name yet | gate |
-| 19 | cv | cv | — | file, skippable |
-| 20 | plan | plan | — | plan |
-| — | done | — | — | terminal, never stored |
+| 19 | cv | cv | not the final-account flow | file, skippable |
+| 20 | plan | plan | not the final-account flow | plan |
+| — | done | — | — | terminal, never stored in the session |
 
 ## Persistence and the gate
 
-The run lives in the Django session until the last screen — the only place an
+In the passwordless flow, answers stay in the anonymous session until the final
+invitation queues a confirmation link with a terminal snapshot. This snapshot
+is stored only with the pending proof, never as the active session run. A
+successful confirmation creates the account and persists the answers in one
+transaction, then clears the pending snapshot. Older nonterminal links resume
+at the review and require a POST to finish; GET never completes an account.
+
+In the local/development flow, the run lives in the Django session until the last screen — the only place an
 anonymous visitor may keep state under the row-level policies — and crosses
 the identity gate because `auth.login()` cycles the session key while keeping
 its data. Anonymous GETs never write the session. Rows are written at two
@@ -156,8 +192,12 @@ settings never creates the row; the first save of an account that skipped the
 questionnaire does.
 
 In accounts mode with sign-ups closed, an anonymous visitor is sent to the
-sign-in page before the first question. `/inscription/` still creates the
-account and now enters the questionnaire, whose gate is skipped by its guard.
+sign-in page before the first question. In the passwordless flow,
+`/inscription/` enters the questionnaire; its final invitation queues email
+confirmation with the saved answers. The verified account opens its workspace
+directly, including when confirmation happens on another device. In development
+with passwords, `/inscription/` retains its direct account form and then enters
+the questionnaire, whose identity gate is skipped by its guard.
 
 ## Accessibility
 

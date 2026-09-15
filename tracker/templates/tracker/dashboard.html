@@ -27,6 +27,14 @@
             Ajoute une première offre pour commencer ton prochain chapitre.
           {% endif %}
         </p>
+        {% if not stats.tracked %}
+          <div class="btn-row">
+            <a href="{% url 'tracker:document_library' %}" class="btn">
+              <svg aria-hidden="true"><use href="#i-file"></use></svg> Ajouter mon CV
+            </a>
+            <span class="meta">Facultatif, à ajouter quand tu le souhaites.</span>
+          </div>
+        {% endif %}
       </div>
     </div>
   </div>

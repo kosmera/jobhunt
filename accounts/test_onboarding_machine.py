@@ -1,8 +1,9 @@
 """The onboarding machine, checked mechanically: no database, no HTTP.
 
-The guards depend on four facts (a placeholder account with data, the AI
-extension, whether the visitor is signed in and named, remote work or not).
-The tests enumerate every combination of them — the sixteen "worlds" — and
+The guards depend on five facts (a placeholder account with data, the AI
+extension, whether the visitor is signed in and named, remote work, and
+whether account creation ends the flow).
+The tests enumerate every combination of them — the thirty-two "worlds" — and
 prove reachability, totality and termination in each, rather than sampling
 the two or three a walk-through would cover.
 """
@@ -33,20 +34,23 @@ from accounts.services import search_profile_fields
 ALL_IDS = tuple(step.id for step in STEPS)
 
 
-def world(*, waiting: bool = False, plugin: bool = False, named: bool = False, remote: bool = False):
-    """A context and the answers that flip the four guards."""
+def world(*, waiting: bool = False, plugin: bool = False, named: bool = False, remote: bool = False,
+          account_at_end: bool = False):
+    """A context and the answers that flip the flow guards."""
     ctx = Context(
         authenticated=named,
         display_name_known=named,
         ai_plugin=plugin,
         waiting_applications=2 if waiting else 0,
+        account_at_end=account_at_end,
     )
     answers = {"work_mode": "remote" if remote else "hybrid"}
     return ctx, answers
 
 
 WORLDS = [
-    world(waiting=w, plugin=p, named=n, remote=r) for w, p, n, r in product([False, True], repeat=4)
+    world(waiting=w, plugin=p, named=n, remote=r, account_at_end=a)
+    for w, p, n, r, a in product([False, True], repeat=5)
 ]
 
 
@@ -171,6 +175,25 @@ class CounterTests(SimpleTestCase):
 
 
 class ProjectionTests(SimpleTestCase):
+    def test_account_at_end_path_finishes_with_identity_and_skips_cv_and_plan(self):
+        ctx, answers = world(account_at_end=True)
+        path = machine.path(answers, ctx)
+        self.assertEqual(path[-3:], ("review", "identity", "done"))
+        self.assertNotIn("cv", path)
+        self.assertNotIn("plan", path)
+        n, total = machine.position("identity", answers, ctx)
+        self.assertEqual(n, total)
+
+    def test_cv_and_plan_are_not_reachable_even_in_a_stale_account_at_end_run(self):
+        ctx, _ = world(account_at_end=True)
+        run = walk(ctx, until="identity")
+        stale = Run(state="identity", answers=run.answers, visited=run.visited | {"cv", "plan"})
+        for state in ("cv", "plan"):
+            with self.subTest(state=state):
+                self.assertFalse(machine.reachable(stale, state, ctx))
+                with self.assertRaises(IllegalTransition):
+                    machine.apply(stale, Event.SKIP, ctx, at=state)
+
     def test_current_skips_a_state_whose_guard_turned_false(self):
         ctx, _ = world()
         run = Run(state="identity", visited=frozenset({"review"}))
@@ -224,6 +247,22 @@ class ProjectionTests(SimpleTestCase):
 
 
 class TransitionTests(SimpleTestCase):
+    def test_final_identity_produces_a_terminal_snapshot_with_all_answers(self):
+        ctx, _ = world(account_at_end=True)
+        run = walk(ctx, until="identity")
+        done = machine.apply(run, Event.CONTINUE, ctx, at="identity", answer={"display_name": "Lionel"})
+        self.assertEqual(done.state, "done")
+        self.assertEqual(done.answers, {**run.answers, "display_name": "Lionel"})
+        self.assertIn("review", done.visited)
+        self.assertIn("identity", done.visited)
+        self.assertNotIn("cv", done.visited)
+        self.assertNotIn("plan", done.visited)
+
+    def test_final_identity_still_requires_the_questionnaire_to_be_reached(self):
+        ctx, _ = world(account_at_end=True)
+        with self.assertRaises(IllegalTransition):
+            machine.apply(machine.fresh(), Event.CONTINUE, ctx, at="identity", answer={"display_name": "Lionel"})
+
     def test_edit_from_review_returns_to_review(self):
         ctx, _ = world()
         run = walk(ctx, until="review")

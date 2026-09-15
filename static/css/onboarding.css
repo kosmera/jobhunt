@@ -3,7 +3,7 @@
    Every colour is an app.css token: light and dark come from the tokens, and
    the global reduced-motion rule in app.css already zeroes the transitions.
    Sections follow the screens: layout, option cards, chips, dropzone, salary,
-   review, plan, interstitials, phones. */
+   review, account preview, plan, interstitials, phones. */
 
 /* --------------------------------------------------------------- layout -- */
 
@@ -234,6 +234,53 @@
 .review__skipped { font-family: var(--font-prose); font-style: italic; color: var(--ink-3); }
 .review__row form { display: contents; }
 
+/* ---------------------------------------------- final account preview -- */
+
+.signup-preview { padding-bottom: 1.5rem; }
+.signup-preview__intro { margin-bottom: 1.75rem; }
+.signup-preview .signup-preview__title {
+  max-width: 20ch; font-family: var(--font-prose); font-size: clamp(2.2rem, 5vw, 3.4rem);
+  font-weight: 450; line-height: 1.05; letter-spacing: -0.035em; text-wrap: balance;
+}
+.signup-preview__intro .onb__lede { max-width: 56ch; margin-bottom: 0; color: var(--ink-2); }
+.signup-preview__summary {
+  padding: 1.5rem; border: 1px solid var(--rule); border-left: 4px solid var(--accent);
+  border-radius: var(--radius-lg); background: var(--accent-wash);
+}
+.signup-preview__section-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.signup-preview__section-head h2 { margin: 0; color: var(--ink-2); line-height: 1.5; }
+.signup-preview__check { display: inline-flex; flex: none; color: var(--accent); }
+.signup-preview__check svg { width: 22px; height: 22px; }
+.signup-preview__criteria { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem 1.5rem; margin: 1.1rem 0 0.8rem; }
+.signup-preview__criterion { min-width: 0; }
+.signup-preview__criterion dt { margin: 0 0 0.35rem; font-size: 0.8rem; line-height: 1.5; color: var(--ink-2); }
+.signup-preview__criterion dd { margin: 0; font-size: 0.95rem; line-height: 1.5; color: var(--heading); overflow-wrap: anywhere; }
+.signup-preview__criterion--titles { grid-column: 1 / -1; }
+.signup-preview__criterion--titles dd { font-family: var(--font-prose); font-size: clamp(1.45rem, 3vw, 1.9rem); line-height: 1.25; }
+.signup-preview__edit { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; font-size: 0.8rem; line-height: 1.5; color: var(--accent); }
+.signup-preview__edit svg { flex: none; width: 15px; height: 15px; }
+.signup-preview__next { margin-top: 2rem; }
+.signup-preview__heading { margin: 0 0 0.7rem; color: var(--heading); font-size: 1.15rem; font-weight: 550; line-height: 1.35; letter-spacing: -0.02em; text-wrap: balance; }
+.signup-preview__possibilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+.signup-preview__possibility { min-width: 0; padding: 1rem 0 0; border-top: 2px solid var(--accent); }
+.signup-preview__possibility--future { border-top-color: var(--rule-strong); }
+.signup-preview__possibility .signup-preview__availability { margin: 0 0 0.65rem; color: var(--accent); font-size: 0.8rem; font-weight: 550; }
+.signup-preview__possibility--future .signup-preview__availability { color: var(--ink-2); }
+.signup-preview__possibility h3 { margin: 0 0 0.5rem; color: var(--heading); font-size: 1rem; font-weight: 550; line-height: 1.4; }
+.signup-preview__possibility p { margin: 0; font-size: 0.9rem; line-height: 1.65; color: var(--ink-2); }
+.signup-preview__possibility .signup-preview__detail { margin-top: 0.65rem; font-size: 0.8rem; }
+.signup-preview__account { margin-top: 2rem; padding: 1.5rem; border: 1px solid var(--rule); border-radius: var(--radius-lg); background: var(--card); }
+.signup-preview__account-lede { margin: 0 0 1.1rem; font-family: var(--font-prose); font-size: 1.1rem; line-height: 1.5; color: var(--ink-2); }
+.signup-preview__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem; }
+.signup-preview__fields .field { min-width: 0; }
+.signup-preview__fields .input { font-size: 16px; }
+.signup-preview__fields .input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none; }
+.signup-preview__confirmation { margin: 0.1rem 0 0; font-size: 0.85rem; line-height: 1.6; color: var(--ink-2); }
+.signup-preview .signup-preview__actions { position: static; margin-top: 1rem; padding: 0; background: none; }
+.signup-preview__actions .btn { white-space: normal; text-align: center; }
+.signup-preview__login { text-align: center; }
+.signup-preview__login a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); }
+
 /* ----------------------------------------------------------------- plan -- */
 
 .plan { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
@@ -329,6 +376,11 @@
   .review__label { grid-column: 1; padding-top: 0; }
   .review__value { grid-column: 1; }
   .review__row .icon-btn { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .signup-preview { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
+  .signup-preview__summary, .signup-preview__account { padding: 1.1rem; }
+  .signup-preview__criteria { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .signup-preview__possibilities, .signup-preview__fields { grid-template-columns: minmax(0, 1fr); }
+  .signup-preview__next, .signup-preview__account { margin-top: 1.5rem; }
   .plan__row { grid-template-columns: 1fr; gap: 0.25rem; }
   .interest__plans { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
   .interest-plan { padding: 1.1rem; }

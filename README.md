@@ -137,17 +137,21 @@ s'appliquent ensuite à l'entrée dans l'espace privé :
 | Mode | Quand | Comment on entre |
 | --- | --- | --- |
 | `local` (défaut si `JOBHUNT_DEBUG=1`) | ta machine | Aucun mot de passe. Pas de profil → parcours **Bienvenue** (une vingtaine d'écrans : situation, postes visés, secteurs, mode de travail, salaire, CV… ; le nom est demandé juste avant le CV, puis le tableau de bord). Un profil → connecté d'office. Plusieurs → on choisit dans une liste, et « Changer de profil » en bas de la barre latérale y ramène. |
-| `accounts` (défaut si `JOBHUNT_DEBUG=0`) | une instance partagée | En production, **Connexion** par lien e-mail et **Inscription** avec confirmation de l'adresse avant de créer le compte. Un visiteur anonyme peut aussi commencer le parcours : la confirmation est demandée juste avant le CV et conserve ses réponses. Les liens sont valables 15 minutes et utilisables une seule fois. `JOBHUNT_SIGNUP_OPEN=0` ferme les inscriptions ; un compte créé autrement (`createsuperuser`) se connecte par e-mail puis passe par le parcours à sa première visite. Les mots de passe restent possibles en développement, hors essai explicite du parcours par e-mail. |
+| `accounts` (défaut si `JOBHUNT_DEBUG=0`) | une instance partagée | En production, **Connexion** par lien e-mail. **Inscription** commence par le questionnaire anonyme, puis présente le récapitulatif et le futur copilote avant de demander un nom et une adresse. La confirmation de l'adresse crée le compte, enregistre les réponses et ouvre l'espace gratuit. Les liens sont valables 15 minutes et utilisables une seule fois. `JOBHUNT_SIGNUP_OPEN=0` ferme les inscriptions ; un compte créé autrement (`createsuperuser`) se connecte par e-mail puis passe par le parcours à sa première visite. Les mots de passe restent possibles en développement, hors essai explicite du parcours par e-mail. |
 
 ### Le parcours Bienvenue
 
 Un écran par question, dans l'ordre : situation, outils d'IA déjà essayés,
 principale difficulté, attentes, postes visés, secteurs, expérience, formation,
 type de contrat, mode de travail, villes et rayon (sauf en télétravail), salaire
-minimum, horizon, puis un bilan à relire. Le nom (ou le compte, en mode
-`accounts`) est demandé ensuite, juste avant le CV. En production, le compte
-est créé après confirmation de l'adresse e-mail ; les réponses sont conservées
-avec cette demande et reprises même si le lien est ouvert sur un autre appareil.
+minimum, horizon, puis un bilan à relire. En production, une dernière page
+présente les critères retenus, l'espace gratuit disponible et les fonctions du
+copilote en préparation. Le nom et l'e-mail sont demandés seulement sur cette
+page pour créer un compte. La confirmation de l'adresse crée le compte et
+enregistre les réponses dans la même transaction, même si le lien est ouvert
+sur un autre appareil, puis ouvre le tableau de bord. Le CV peut être ajouté
+ensuite dans **Documents**. Le parcours local et le mode de développement avec
+mot de passe gardent leur étape CV après le nom et leur écran de fin habituel.
 En dehors de cette confirmation, un parcours interrompu reprend au même endroit
 sur le même navigateur grâce à la session.
 
@@ -177,7 +181,12 @@ bouton Retour, la modification depuis le bilan et le compteur en découlent.
 
 ### Intérêt pour le lancement
 
-En mode `accounts` avec `JOBHUNT_LAUNCH_INTEREST_ENABLED=1`, l'écran qui suit le CV présente la formule gratuite et
+Le nouveau parcours de production présente le copilote avant la création du
+compte, sans écran tarifaire et sans inscription automatique aux e-mails de
+lancement. Les accords déjà enregistrés et leur traitement restent conservés.
+
+Dans le parcours de développement avec mot de passe, en mode `accounts` avec
+`JOBHUNT_LAUNCH_INTEREST_ENABLED=1`, l'écran qui suit le CV présente la formule gratuite et
 l'offre Premium en préparation à **24,90 € par mois**.
 L'adresse d'inscription est préremplie, modifiable
 sans changer l'identifiant de connexion. Le choix d'une formule et l'accord

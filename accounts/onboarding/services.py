@@ -47,12 +47,13 @@ def waiting_counts(user) -> dict[str, int]:
 def build_context(user) -> Context:
     """What the guards read: nothing that the answers already hold."""
     if user is None:
-        return Context(ai_plugin=cv_analyzer() is not None)
+        return Context(ai_plugin=cv_analyzer() is not None, account_at_end=conf.passwordless())
     return Context(
         authenticated=True,
         display_name_known=bool(profile_for(user).display_name.strip()),
         ai_plugin=cv_analyzer() is not None,
         waiting_applications=waiting_counts(user)["applications"],
+        account_at_end=conf.passwordless(),
     )
 
 

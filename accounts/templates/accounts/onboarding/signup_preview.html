@@ -1,0 +1,69 @@
+{% extends "accounts/onboarding/layout.html" %}
+
+{% block title %}Ta recherche prend forme — tonjobidéal{% endblock %}
+
+{% block step %}
+  <div class="signup-preview">
+    <header class="signup-preview__intro">
+      <span class="eyebrow onb__eyebrow">Ton point de départ</span>
+      <h1 class="onb__title signup-preview__title">Ta recherche prend forme.</h1>
+      <p class="onb__lede">Tu as posé les bases. Voici le cap que tu as choisi, et comment tonjobidéal peut t'aider à avancer.</p>
+    </header>
+
+    <section class="signup-preview__summary" aria-labelledby="search-summary-title">
+      <div class="signup-preview__section-head">
+        <h2 id="search-summary-title" class="eyebrow">Ta recherche, en quelques repères</h2>
+        <span class="signup-preview__check" aria-hidden="true"><svg><use href="#i-check"></use></svg></span>
+      </div>
+      <dl class="signup-preview__criteria">
+        {% for row in preview_rows %}
+          <div class="signup-preview__criterion{% if row.slug == 'postes' %} signup-preview__criterion--titles{% endif %}">
+            <dt>{{ row.label }}</dt>
+            <dd>{% if row.skipped %}À préciser quand tu le souhaites{% else %}{{ row.value }}{% endif %}</dd>
+          </div>
+        {% endfor %}
+      </dl>
+      <a class="signup-preview__edit" href="{% url 'accounts:onboarding_step' 'bilan' %}">
+        <svg aria-hidden="true"><use href="#i-pencil"></use></svg> Relire ou modifier mes réponses
+      </a>
+    </section>
+
+    <section class="signup-preview__next" aria-labelledby="next-steps-title">
+      <h2 id="next-steps-title" class="signup-preview__heading">Un espace pour passer à la suite</h2>
+      <div class="signup-preview__possibilities">
+        <article class="signup-preview__possibility">
+          <p class="signup-preview__availability">Disponible maintenant</p>
+          <h3>Ton suivi gratuit</h3>
+          <p>Rassemble tes candidatures, organise tes prochaines étapes et retrouve tes documents au même endroit.</p>
+          <p class="signup-preview__detail">Tu pourras ajouter ton CV dans Documents après la création de ton compte.</p>
+        </article>
+        <article class="signup-preview__possibility signup-preview__possibility--future">
+          <p class="signup-preview__availability">En préparation</p>
+          <h3>Ton copilote de recherche</h3>
+          <p>Un accompagnement prévu pour examiner une offre avec tes critères, repérer les points à renforcer et préparer un CV adapté.</p>
+          <p class="signup-preview__detail">Tu garderas la main sur chaque candidature.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="signup-preview__account" aria-labelledby="create-account-title">
+      <h2 id="create-account-title" class="signup-preview__heading">Garde ce cap dans ton espace gratuit</h2>
+      <p class="signup-preview__account-lede">Crée ton compte pour retrouver tes réponses et commencer à organiser ta recherche.</p>
+      <form method="post" class="signup-preview__form" novalidate aria-labelledby="create-account-title">
+        {% csrf_token %}
+        {% for error in form.non_field_errors %}<div class="flash t-red" role="alert">{{ error }}</div>{% endfor %}
+        <div class="signup-preview__fields">
+          {% include "tracker/partials/field.html" with field=form.display_name %}
+          {% include "tracker/partials/field.html" with field=form.email %}
+        </div>
+        <p class="signup-preview__confirmation">Confirme ton adresse avec le lien reçu par e-mail pour créer ton compte et ouvrir ton espace. Aucun mot de passe à retenir.</p>
+        <div class="onb__actions signup-preview__actions">
+          <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">
+            Recevoir mon lien de confirmation <svg aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+          </button>
+          <p class="onb__note signup-preview__login">Déjà un compte ? <a href="{{ login_url }}">Se connecter</a>.</p>
+        </div>
+      </form>
+    </section>
+  </div>
+{% endblock %}

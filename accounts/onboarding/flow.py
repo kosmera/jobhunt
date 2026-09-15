@@ -53,6 +53,11 @@ def needs_identity(answers: Answers, ctx: Context) -> bool:
     return not ctx.authenticated or not ctx.display_name_known
 
 
+def needs_workspace_setup(answers: Answers, ctx: Context) -> bool:
+    """Verified account activation opens the workspace; optional CV setup happens there."""
+    return not ctx.account_at_end
+
+
 # ---------------------------------------------------------------------------
 # Options
 # ---------------------------------------------------------------------------
@@ -236,6 +241,7 @@ STEPS: tuple[Step, ...] = (
     ),
     Step(
         "cv", "cv", Kind.FILE, "plan",
+        guard=needs_workspace_setup,
         title="Ton CV, pour partir du bon pied",
         lede="Il devient ton CV de base dans Documents : chaque candidature part de là.",
         note="Le fichier reste dans ton espace ; seule une version "
@@ -248,6 +254,7 @@ STEPS: tuple[Step, ...] = (
     ),
     Step(
         "plan", "plan", Kind.PLAN, "done", title="Commence aujourd'hui.",
+        guard=needs_workspace_setup,
         answer_keys=("launch_notify", "launch_email", "launch_plan"),
         skip_values={"launch_notify": False, "launch_email": "", "launch_plan": ""},
     ),

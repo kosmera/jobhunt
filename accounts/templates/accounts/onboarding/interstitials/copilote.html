@@ -1,5 +1,6 @@
 {% extends "accounts/onboarding/interstitial.html" %}
 {% block illustration %}{% include "accounts/onboarding/illustrations/experience.html" %}{% endblock %}
+{% block heading %}{% if final_signup %}Un copilote se prépare pour la suite{% else %}{{ step.title }}{% endif %}{% endblock %}
 {% block body %}
   <ul class="check-list">
     <li><svg aria-hidden="true"><use href="#i-check"></use></svg>Évaluer si une offre te correspond, et expliquer pourquoi</li>
@@ -8,4 +9,4 @@
     <li><svg aria-hidden="true"><use href="#i-check"></use></svg>Signaler des pistes que tu n'aurais pas vues</li>
   </ul>
 {% endblock %}
-{% block foot %}<p class="onb__note">Copilote IA, inclus dans l’abonnement Premium.</p>{% endblock %}
+{% block foot %}<p class="onb__note">{% if final_signup %}Ces fonctions sont en préparation. Ton suivi de candidatures gratuit est déjà disponible.{% else %}Copilote IA, inclus dans l’abonnement Premium.{% endif %}</p>{% endblock %}

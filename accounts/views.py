@@ -151,15 +151,13 @@ def signup(request):
         return redirect("accounts:onboarding")
     if not conf.signup_open():
         return render(request, "accounts/signup_closed.html", status=403)
+    if conf.passwordless():
+        # New visitors finish the questionnaire before providing an address.
+        # Old bookmarks and stale signup forms follow the same entry point.
+        return redirect("accounts:onboarding")
 
     form = SignupForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        if conf.passwordless():
-            queue_email_link(
-                request, form.cleaned_data["email"], purpose="signup", display_name=form.cleaned_data["display_name"],
-                next_path=reverse("accounts:onboarding"),
-            )
-            return redirect("accounts:email_link_sent")
         user = form.save()
         auth.login(request, user, backend=LOCAL_BACKEND)
         # The account exists and is named; the questionnaire fills the rest and
@@ -221,7 +219,7 @@ def email_link_confirm(request, token):
             store.clear(request)
             request.session.pop("pending_email_link", None)
             auth.login(request, user, backend=LOCAL_BACKEND)
-            if link.purpose == "signup" and link.onboarding_data:
+            if link.purpose == "signup" and link.onboarding_data and not profile_for(user).is_onboarded:
                 request.session[store.SESSION_KEY] = link.onboarding_data
             if link.purpose == "change":
                 messages.success(request, "Nouvelle adresse e-mail confirmée.")

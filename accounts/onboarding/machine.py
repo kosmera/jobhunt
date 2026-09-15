@@ -64,6 +64,7 @@ class Context:
     display_name_known: bool = False
     ai_plugin: bool = False
     waiting_applications: int = 0
+    account_at_end: bool = False
 
 
 Answers = Mapping[str, Any]

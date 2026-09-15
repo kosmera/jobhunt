@@ -3,7 +3,7 @@
 {% block title %}{% if valid %}Confirmer{% else %}Lien indisponible{% endif %} — tonjobidéal{% endblock %}
 {% block auth_eyebrow %}{% if email_change %}Ton e-mail{% elif signup %}Ton compte{% else %}Connexion{% endif %}{% endblock %}
 {% block auth_title %}{% if valid %}{% if email_change %}Confirme ta nouvelle adresse{% elif signup %}Confirme ton inscription{% else %}Retrouve ton espace{% endif %}{% else %}Ce lien n'est plus disponible{% endif %}{% endblock %}
-{% block auth_lede %}{% if valid %}{% if email_change %}Confirme que cette adresse t'appartient. Elle servira ensuite à te connecter à ton compte.{% elif signup %}Il reste une étape : confirme ton adresse e-mail pour créer ton compte et continuer.{% else %}Confirme ci-dessous pour te connecter à ton compte.{% endif %}{% else %}Ce lien a expiré, a déjà été utilisé ou n'est pas valide. Demande un nouveau lien pour continuer.{% endif %}{% endblock %}
+{% block auth_lede %}{% if valid %}{% if email_change %}Confirme que cette adresse t'appartient. Elle servira ensuite à te connecter à ton compte.{% elif signup %}Il reste une étape : confirme ton adresse e-mail pour créer ton compte et ouvrir ton espace gratuit.{% else %}Confirme ci-dessous pour te connecter à ton compte.{% endif %}{% else %}Ce lien a expiré, a déjà été utilisé ou n'est pas valide. Demande un nouveau lien pour continuer.{% endif %}{% endblock %}
 
 {% block auth_body %}
   {% if valid %}

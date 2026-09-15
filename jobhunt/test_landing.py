@@ -46,10 +46,16 @@ class LandingTests(TestCase):
         self.assertContains(response, "Données fictives")
         self.assertNotIn("_auth_user_id", response.wsgi_request.session)
 
-    @override_settings(AUTH_MODE="accounts", SIGNUP_OPEN=True)
-    def test_account_mode_links_to_registration(self):
+    @override_settings(AUTH_MODE="accounts", SIGNUP_OPEN=True, PASSWORDLESS_AUTH=True)
+    def test_account_mode_starts_the_questionnaire_before_registration(self):
         response = self.client.get(reverse("landing"))
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'href="/bienvenue/"')
+        self.assertNotContains(response, 'href="/inscription/"')
+
+    @override_settings(AUTH_MODE="accounts", SIGNUP_OPEN=True, PASSWORDLESS_AUTH=False, IS_SAAS_PRODUCTION=False)
+    def test_development_password_mode_keeps_its_registration_link(self):
+        response = self.client.get(reverse("landing"))
         self.assertContains(response, 'href="/inscription/"')
 
     @override_settings(AUTH_MODE="accounts", SIGNUP_OPEN=False)

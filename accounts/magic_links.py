@@ -22,7 +22,9 @@ from django_q.tasks import async_task
 
 from accounts import conf
 from accounts.models import EmailLinkRateLimit, EmailSignInLink
-from accounts.services import name_profile, profile_for
+from accounts.onboarding.flow import machine
+from accounts.onboarding.machine import Run
+from accounts.services import finish_onboarding, name_profile, profile_for
 from rls import as_user
 
 LIFETIME = timedelta(minutes=15)
@@ -234,6 +236,13 @@ def consume_link(token):
                 profile.verified_email = link.email
                 profile.email_verified_at = timezone.now()
                 profile.save(update_fields=["verified_email", "email_verified_at"])
+                if link.purpose == "signup":
+                    run = Run.from_json(link.onboarding_data)
+                    if run is not None and run.state == machine.terminal:
+                        # This server-built snapshot is released only by email
+                        # proof. Persist answers and account creation together,
+                        # including when the link opens on another device.
+                        finish_onboarding(user, run.answers)
             EmailSignInLink.objects.filter(pk=link.pk).update(user=user, onboarding_data={})
             return user, link
     except IntegrityError:

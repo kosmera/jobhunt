@@ -23,5 +23,5 @@
 {% endblock %}
 
 {% block auth_foot %}
-  {% if signup_open %}Pas encore de compte ? <a href="{% url 'accounts:signup' %}">Créer le tien</a>.{% endif %}
+  {% if signup_open %}Pas encore de compte ? {% if auth_passwordless %}<a href="{% url 'accounts:onboarding' %}">Commencer ma recherche</a>{% else %}<a href="{% url 'accounts:signup' %}">Créer le tien</a>{% endif %}.{% endif %}
 {% endblock %}

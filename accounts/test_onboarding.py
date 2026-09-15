@@ -16,7 +16,7 @@ from django.db import ProgrammingError, connection, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from accounts.models import Preferences, Profile, SearchProfile
+from accounts.models import EmailSignInLink, LaunchEmailJob, Preferences, Profile, SearchProfile
 from accounts.onboarding import store
 from accounts.onboarding.flow import machine
 from accounts.onboarding.machine import Run
@@ -25,6 +25,7 @@ from accounts.onboarding.testing import DEFAULT_ANSWERS, DEFAULT_POSTS, all_answ
 from accounts.services import (
     LOCAL_USERNAME,
     finish_onboarding,
+    has_premium,
     name_profile,
     preferences_for,
     profile_for,
@@ -32,7 +33,7 @@ from accounts.services import (
 from accounts.testing import make_user
 from rls import as_user
 from rls.testing import app_role
-from tracker.models import Application, Company
+from tracker.models import Application, Company, Document
 
 ENTRY = reverse("accounts:onboarding")
 
@@ -321,7 +322,7 @@ class LocalFlowTests(TestCase):
                 self.assertNotIn(token, body)
 
 
-@override_settings(AUTH_MODE="accounts", SIGNUP_OPEN=True)
+@override_settings(AUTH_MODE="accounts", SIGNUP_OPEN=True, PASSWORDLESS_AUTH=False, IS_SAAS_PRODUCTION=False)
 @NO_PLUGIN
 class AccountsFlowTests(TestCase):
     PASSWORD = "un-mot-de-passe-solide-42"
@@ -415,6 +416,97 @@ class AccountsFlowTests(TestCase):
         assert run is not None
         self.assertEqual(run.answers["job_titles"], DEFAULT_ANSWERS["titles"]["job_titles"])
         self.assertEqual(self.client.get(url("cv")).wsgi_request.user, user)
+
+
+@override_settings(
+    AUTH_MODE="accounts", SIGNUP_OPEN=True, PASSWORDLESS_AUTH=True,
+    IS_SAAS_PRODUCTION=True, LAUNCH_INTEREST_ENABLED=True,
+)
+@NO_PLUGIN
+class FinalAccountFlowTests(TestCase):
+    SIGNUP = {"display_name": "Lionel", "email": "lionel@example.org"}
+
+    def test_anonymous_finishes_questionnaire_before_final_account_preview(self):
+        preview = walk(self.client, until="identite")
+        self.assertTemplateUsed(preview, "accounts/onboarding/signup_preview.html")
+        self.assertEqual(preview.context["n"], preview.context["total"])
+        self.assertContains(preview, "Ingénieur DevOps")
+        self.assertContains(preview, "Nivelles")
+        for field in ("display_name", "email"):
+            self.assertContains(preview, f'name="{field}"')
+        self.assertNotContains(preview, 'type="password"')
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(EmailSignInLink.objects.exists())
+        self.assertFalse(SearchProfile.objects.exists())
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_direct_identity_submission_cannot_skip_the_questionnaire(self):
+        response = self.client.post(url("identite"), self.SIGNUP)
+        self.assertRedirects(response, url("situation"), fetch_redirect_response=False)
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(EmailSignInLink.objects.exists())
+
+    def test_preview_get_keeps_answers_and_missing_email_cannot_complete(self):
+        walk(self.client, until="identite")
+        original = self.client.session[store.SESSION_KEY]
+        self.assertEqual(self.client.get(url("identite")).status_code, 200)
+        self.assertEqual(self.client.session[store.SESSION_KEY], original)
+        response = self.client.post(url("identite"), {"display_name": "Lionel"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("email", response.context["form"].errors)
+        self.assertEqual(response.context["form"]["display_name"].value(), "Lionel")
+        self.assertEqual(self.client.session[store.SESSION_KEY], original)
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(EmailSignInLink.objects.exists())
+
+    def test_anonymous_cv_and_plan_requests_cannot_bypass_the_final_gate(self):
+        for reached_gate in (False, True):
+            if reached_gate:
+                walk(self.client, until="identite")
+            destination = url("identite" if reached_gate else "situation")
+            for slug in ("cv", "plan"):
+                for method in (self.client.get, self.client.post):
+                    with self.subTest(gate=reached_gate, slug=slug, method=method.__name__):
+                        response = method(url(slug), {"action": "skip", **self.SIGNUP})
+                        self.assertRedirects(response, destination, fetch_redirect_response=False)
+            self.assertFalse(User.objects.exists())
+            self.assertFalse(Document.objects.exists())
+            self.assertFalse(EmailSignInLink.objects.exists())
+
+    def test_editing_the_review_updates_the_final_signup_snapshot(self):
+        walk(self.client, until="identite")
+        self.client.post(url("bilan"), {"action": "edit", "target": "postes"})
+        self.client.post(url("postes"), {"titles": ["Comptable"]})
+        self.client.post(url("bilan"), {"action": "continue"})
+        preview = self.client.get(url("identite"))
+        self.assertContains(preview, "Comptable")
+        self.client.post(url("identite"), self.SIGNUP)
+        snapshot = EmailSignInLink.objects.get().onboarding_data
+        self.assertEqual(snapshot["state"], "done")
+        self.assertEqual(snapshot["answers"]["job_titles"], ["Comptable"])
+        self.assertEqual(snapshot["answers"]["cities"], ["Nivelles", "Wavre"])
+        self.assertFalse(User.objects.exists())
+
+    def test_final_signup_skips_pricing_without_opt_in_or_premium_grants(self):
+        from accounts.magic_links import sign_link
+
+        walk(self.client, until="identite")
+        self.client.post(url("identite"), {
+            **self.SIGNUP, "launch_notify": True, "launch_email": "lionel@example.org",
+            "launch_plan": "premium", "plan": "premium", "consent": "on", "subscription_level": "premium",
+        })
+        link = EmailSignInLink.objects.get()
+        self.assertNotIn("cv", link.onboarding_data["visited"])
+        self.assertNotIn("plan", link.onboarding_data["visited"])
+        response = self.client.post(reverse("accounts:email_link_confirm", args=[sign_link(link)]))
+        self.assertRedirects(response, reverse("tracker:dashboard"))
+        user = User.objects.get()
+        profile = profile_for(user)
+        self.assertTrue(profile.is_onboarded)
+        self.assertIsNone(profile.launch_consent_at)
+        self.assertFalse(has_premium(user))
+        self.assertFalse(LaunchEmailJob.objects.exists())
+        self.assertFalse(Document.objects.exists())
 
 
 class ServiceTests(TestCase):

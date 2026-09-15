@@ -17,7 +17,7 @@ from django_q.models import OrmQ
 from django_q.signing import SignedPackage
 
 from accounts import magic_links
-from accounts.models import EmailSignInLink, Profile
+from accounts.models import EmailSignInLink, Preferences, Profile, SearchProfile
 from accounts.onboarding import store
 from accounts.onboarding.testing import walk
 from accounts.testing import make_user
@@ -31,9 +31,11 @@ from accounts.testing import make_user
     JOBHUNT_PUBLIC_URL="https://tonjobideal.com",
 )
 class MagicLinkTests(TestCase):
-    def request_signup(self, **extra):
-        return self.client.post(
-            reverse("accounts:signup"),
+    def request_signup(self, *, browser=None, **extra):
+        browser = browser or self.client
+        walk(browser, until="identite")
+        return browser.post(
+            reverse("accounts:onboarding_step", args=["identite"]),
             {"display_name": "Lionel", "email": "Lionel@Example.org", **extra},
         )
 
@@ -57,9 +59,11 @@ class MagicLinkTests(TestCase):
         self.assertEqual(link.email, "lionel@example.org")
         self.assertEqual(link.display_name, "Lionel")
         self.assertIsNone(link.user_id)
+        self.assertEqual(link.onboarding_data["state"], "done")
+        self.assertEqual(link.onboarding_data["answers"]["cities"], ["Nivelles", "Wavre"])
 
         confirmed = self.client.post(self.confirm_url(link))
-        self.assertRedirects(confirmed, reverse("accounts:onboarding"), fetch_redirect_response=False)
+        self.assertRedirects(confirmed, reverse("tracker:dashboard"))
         user = User.objects.get()
         self.assertEqual(user.email, "lionel@example.org")
         self.assertFalse(user.has_usable_password())
@@ -67,17 +71,31 @@ class MagicLinkTests(TestCase):
         profile = Profile.objects.get(user=user)
         self.assertEqual(profile.verified_email, user.email)
         self.assertIsNotNone(profile.email_verified_at)
-        self.assertFalse(profile.is_onboarded)
+        self.assertTrue(profile.is_onboarded)
+        self.assertNotIn(store.SESSION_KEY, self.client.session)
+        self.assertNotIn("pending_email_link", self.client.session)
         link.refresh_from_db()
         self.assertIsNotNone(link.consumed_at)
 
-    def test_signup_and_login_forms_have_no_password_fields(self):
-        for name in ("accounts:signup", "accounts:login"):
-            with self.subTest(name=name):
-                response = self.client.get(reverse(name))
-                self.assertEqual(response.status_code, 200)
-                self.assertContains(response, 'name="email"')
-                self.assertNotContains(response, 'type="password"')
+    def test_final_signup_and_login_forms_have_no_password_fields(self):
+        login = self.client.get(reverse("accounts:login"))
+        preview = walk(self.client, until="identite")
+        for response in (login, preview):
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'name="email"')
+            self.assertNotContains(response, 'type="password"')
+        self.assertTemplateUsed(preview, "accounts/onboarding/signup_preview.html")
+
+    def test_standalone_signup_redirects_get_and_stale_post_into_the_questionnaire(self):
+        for method in (self.client.get, self.client.post):
+            with self.subTest(method=method.__name__):
+                response = method(
+                    reverse("accounts:signup"), {"display_name": "Lionel", "email": "lionel@example.org"},
+                )
+                self.assertRedirects(response, reverse("accounts:onboarding"), fetch_redirect_response=False)
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(EmailSignInLink.objects.exists())
+        self.assertFalse(OrmQ.objects.exists())
 
     def test_invalid_email_is_rejected_without_creating_a_link(self):
         response = self.request_signup(email="not an email")
@@ -188,9 +206,7 @@ class MagicLinkTests(TestCase):
         with patch("accounts.magic_links.timezone.now", return_value=now):
             first = self.request_signup()
             browser = self.client_class()
-            repeated = browser.post(
-                reverse("accounts:signup"), {"display_name": "Other", "email": "LIONEL@example.org"},
-            )
+            repeated = self.request_signup(browser=browser, display_name="Other", email="LIONEL@example.org")
         self.assertEqual(first["Location"], repeated["Location"])
         self.assertEqual(EmailSignInLink.objects.count(), 1)
         self.assertEqual(OrmQ.objects.count(), 1)
@@ -261,9 +277,7 @@ class MagicLinkTests(TestCase):
         now = timezone.now().replace(minute=0, second=0, microsecond=0)
         for minute in range(6):
             with patch("accounts.magic_links.timezone.now", return_value=now + timedelta(minutes=minute)):
-                response = self.client_class().post(
-                    reverse("accounts:signup"), {"display_name": "Lionel", "email": "lionel@example.org"},
-                )
+                response = self.request_signup(browser=self.client_class(), email="lionel@example.org")
                 self.assertEqual(response.status_code, 302)
         self.assertEqual(EmailSignInLink.objects.count(), 5)
         self.assertEqual(OrmQ.objects.count(), 5)
@@ -283,6 +297,8 @@ class MagicLinkTests(TestCase):
 
     def test_signup_for_existing_email_cannot_replace_its_identity_or_answers(self):
         user = self.verified_user()
+        SearchProfile.objects.create(user=user, job_titles=["Original"])
+        Preferences.objects.filter(user=user).update(search_radius_km=20)
         self.request_signup(display_name="Attacker")
         link = EmailSignInLink.objects.get()
         self.assertEqual(link.purpose, "login")
@@ -290,6 +306,8 @@ class MagicLinkTests(TestCase):
         self.assertEqual(self.client.post(self.confirm_url(link)).status_code, 302)
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(Profile.objects.get(user=user).display_name, "Lionel")
+        self.assertEqual(SearchProfile.objects.get(user=user).job_titles, ["Original"])
+        self.assertEqual(Preferences.objects.get(user=user).search_radius_km, 20)
 
     def test_existing_account_login_normalizes_email_and_preserves_safe_destination(self):
         user = self.verified_user()
@@ -425,7 +443,7 @@ class MagicLinkTests(TestCase):
         self.assertIsNone(link.consumed_at)
         self.assertEqual(user.email, "lionel@example.org")
 
-    def test_onboarding_answers_resume_after_confirmation_in_a_new_browser(self):
+    def test_onboarding_finishes_from_the_confirmed_snapshot_in_a_new_browser(self):
         walk(self.client, until="identite")
         response = self.client.post(
             "/bienvenue/identite/", {"display_name": "Lionel", "email": "lionel@example.org"},
@@ -433,11 +451,54 @@ class MagicLinkTests(TestCase):
         self.assertRedirects(response, reverse("accounts:email_link_sent"))
         self.assertFalse(User.objects.exists())
         browser = self.client_class()
-        self.assertEqual(browser.post(self.confirm_url()).status_code, 302)
-        self.assertEqual(browser.get(reverse("accounts:onboarding"))["Location"], "/bienvenue/cv/")
-        run = browser.session[store.SESSION_KEY]
-        self.assertEqual(run["answers"]["cities"], ["Nivelles", "Wavre"])
-        self.assertEqual(run["answers"]["display_name"], "Lionel")
-        response = walk(browser)
-        self.assertRedirects(response, reverse("tracker:dashboard"), fetch_redirect_response=False)
-        self.assertTrue(Profile.objects.get(user=User.objects.get()).is_onboarded)
+        # The receiving device may have an unrelated questionnaire in progress.
+        walk(browser, until="salaire", posts={"work_mode": {"choice": "remote"}})
+        response = browser.post(self.confirm_url())
+        self.assertRedirects(response, reverse("tracker:dashboard"))
+        user = User.objects.get()
+        profile = Profile.objects.get(user=user)
+        search = SearchProfile.objects.get(user=user)
+        self.assertEqual(profile.display_name, "Lionel")
+        self.assertTrue(profile.is_onboarded)
+        self.assertEqual(search.cities, ["Nivelles", "Wavre"])
+        self.assertEqual(search.job_titles, ["Ingénieur DevOps", "Ingénieur cloud"])
+        self.assertEqual((search.salary_min, search.salary_period), (5900, "month"))
+        self.assertNotIn(store.SESSION_KEY, browser.session)
+        self.assertNotIn("pending_email_link", browser.session)
+        self.assertEqual(EmailSignInLink.objects.get().onboarding_data, {})
+
+    def test_failed_onboarding_completion_rolls_back_account_and_token_consumption(self):
+        self.request_signup()
+        link = EmailSignInLink.objects.get()
+        confirmation = self.confirm_url(link)
+        with patch("accounts.magic_links.finish_onboarding", side_effect=RuntimeError("cannot save answers")):
+            with self.assertRaisesMessage(RuntimeError, "cannot save answers"):
+                self.client.post(confirmation)
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(Profile.objects.exists())
+        self.assertFalse(SearchProfile.objects.exists())
+        link.refresh_from_db()
+        self.assertIsNone(link.consumed_at)
+        self.assertEqual(link.onboarding_data["state"], "done")
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertRedirects(self.client.post(confirmation), reverse("tracker:dashboard"))
+
+    def test_legacy_nonterminal_signup_link_preserves_answers_and_requires_review_post(self):
+        self.request_signup()
+        link = EmailSignInLink.objects.get()
+        legacy = {**link.onboarding_data, "state": "cv"}
+        EmailSignInLink.objects.filter(pk=link.pk).update(onboarding_data=legacy)
+        browser = self.client_class()
+        response = browser.post(self.confirm_url(link))
+        self.assertRedirects(response, reverse("accounts:onboarding"), fetch_redirect_response=False)
+        user = User.objects.get()
+        self.assertFalse(Profile.objects.get(user=user).is_onboarded)
+        response = browser.get(reverse("accounts:onboarding"))
+        self.assertRedirects(response, "/bienvenue/bilan/", fetch_redirect_response=False)
+        self.assertEqual(browser.get("/bienvenue/bilan/").status_code, 200)
+        self.assertFalse(Profile.objects.get(user=user).is_onboarded)
+        response = browser.post("/bienvenue/bilan/", {"action": "continue"})
+        self.assertRedirects(response, reverse("tracker:dashboard"))
+        self.assertTrue(Profile.objects.get(user=user).is_onboarded)
+        self.assertEqual(SearchProfile.objects.get(user=user).cities, ["Nivelles", "Wavre"])
+        self.assertNotIn(store.SESSION_KEY, browser.session)

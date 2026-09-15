@@ -1,7 +1,7 @@
 {% extends "accounts/onboarding/layout.html" %}
 {% block step %}
   <div class="onb__form">
-    <span class="eyebrow onb__eyebrow">Presque fini</span>
+    <span class="eyebrow onb__eyebrow">{% if final_signup %}Ton bilan{% else %}Presque fini{% endif %}</span>
     <h1 class="onb__title">{{ step.title }}</h1>
     <p class="onb__lede">{{ step.lede }}</p>
     <dl class="review">
@@ -22,7 +22,7 @@
     <form method="post" novalidate>
       {% csrf_token %}
       <div class="onb__actions">
-        <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">C'est bon pour moi</button>
+        <button type="submit" name="action" value="continue" class="btn btn--primary btn--block">{% if final_signup %}Voir mon aperçu{% else %}C'est bon pour moi{% endif %}</button>
       </div>
     </form>
   </div>

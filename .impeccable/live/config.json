@@ -1,0 +1,13 @@
+{
+  "files": [
+    "tracker/templates/base.html",
+    "tracker/templates/landing.html",
+    "accounts/templates/accounts/onboarding/layout.html"
+  ],
+  "exclude": [
+    "accounts/templates/accounts/emails/**"
+  ],
+  "insertBefore": "</body>",
+  "commentSyntax": "html",
+  "cspChecked": true
+}

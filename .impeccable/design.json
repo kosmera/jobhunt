@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-15T11:38:25Z",
+  "title": "Design System: tonjobidéal / JobHunt",
+  "extensions": {
+    "colorMeta": {
+      "forest-deep": { "role": "primary", "displayName": "Forest Deep", "canonical": "oklch(34% 0.049 177)", "dark": "#f7f8fa (headings) / #b8dec6 (button fill)", "tonalRamp": ["#000f0b", "#002d24", "#214b41", "#416b60", "#628c81", "#84b0a4", "#a8d4c8", "#cdfaee"] },
+      "leaf": { "role": "primary", "displayName": "Leaf", "canonical": "oklch(50% 0.089 162)", "dark": "#9bd4b2", "tonalRamp": ["#001007", "#002e1c", "#004f34", "#277152", "#4b9372", "#6fb794", "#93dcb8", "#c2ffe0"] },
+      "mint-wash": { "role": "primary", "displayName": "Mint Wash", "canonical": "#edf6ee", "dark": "#29332e", "tonalRamp": ["#001007", "#002e1c", "#004f34", "#277152", "#4b9372", "#6fb794", "#93dcb8", "#edf6ee"] },
+      "lime": { "role": "primary", "displayName": "Lime", "canonical": "oklch(93% 0.078 129)", "tonalRamp": ["#050f00", "#1a2b00", "#354a19", "#536a39", "#748c59", "#96af7b", "#b9d49e", "#def9c2"] },
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "#f7faf5", "dark": "#141518" },
+      "paper-deep": { "role": "neutral", "displayName": "Paper Deep", "canonical": "#edf3e8", "dark": "#1a1b20" },
+      "card": { "role": "neutral", "displayName": "Card", "canonical": "#ffffff", "dark": "#1e2025" },
+      "card-alt": { "role": "neutral", "displayName": "Card Alt", "canonical": "#f4f8ef", "dark": "#25272d" },
+      "rail": { "role": "neutral", "displayName": "Rail / Landing Paper", "canonical": "#fcfdfb", "dark": "#191a1f" },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#243e35", "dark": "#f0f1f3" },
+      "ink-2": { "role": "neutral", "displayName": "Ink 2", "canonical": "#4f6658", "dark": "#d4d7dc" },
+      "ink-3": { "role": "neutral", "displayName": "Ink 3", "canonical": "#627369", "dark": "#bfc3cb" },
+      "rule": { "role": "neutral", "displayName": "Rule", "canonical": "#dfe7de", "dark": "#3a3d45" },
+      "rule-strong": { "role": "neutral", "displayName": "Rule Strong", "canonical": "#b4c4b3", "dark": "#7b818e" },
+      "overlay": { "role": "neutral", "displayName": "Overlay", "canonical": "rgba(21, 63, 54, 0.48)", "dark": "rgba(8, 9, 12, 0.76)" },
+      "moss": { "role": "tertiary", "displayName": "Moss", "canonical": "oklch(48% 0.087 141)", "dark": "#9bd4b2", "tonalRamp": ["#001000", "#052e00", "#254d1e", "#446d3d", "#658f5e", "#87b37f", "#aad8a2", "#cffec7"] },
+      "moss-wash": { "role": "tertiary", "displayName": "Moss Wash", "canonical": "#eaf4e3", "dark": "#28362f" },
+      "amber": { "role": "tertiary", "displayName": "Amber", "canonical": "oklch(51% 0.098 79)", "dark": "#f0ca86", "tonalRamp": ["#130900", "#332100", "#583c00", "#7e5a0d", "#a17b37", "#c69e5b", "#ebc27e", "#feecce"] },
+      "amber-wash": { "role": "tertiary", "displayName": "Amber Wash", "canonical": "#f8efd9", "dark": "#393124" },
+      "rust": { "role": "tertiary", "displayName": "Rust", "canonical": "oklch(51% 0.125 32)", "dark": "#ffb4a2", "tonalRamp": ["#210000", "#4c0300", "#761e10", "#9b4131", "#c16351", "#e88673", "#ffb4a4", "#ffe9e4"] },
+      "rust-wash": { "role": "tertiary", "displayName": "Rust Wash", "canonical": "#faeae4", "dark": "#3e2c29" },
+      "violet": { "role": "tertiary", "displayName": "Violet", "canonical": "oklch(50% 0.094 307)", "dark": "#d4b9f5", "tonalRamp": ["#150026", "#311448", "#503268", "#70528b", "#9273ae", "#b595d3", "#dab9f9", "#f4eaff"] },
+      "violet-wash": { "role": "tertiary", "displayName": "Violet Wash", "canonical": "#f1eaf7", "dark": "#332d3e" },
+      "blue": { "role": "tertiary", "displayName": "Blue", "canonical": "oklch(51% 0.073 245)", "dark": "#abceff", "tonalRamp": ["#000c1c", "#002743", "#1b4566", "#3b6588", "#5c87ac", "#7eaad0", "#a2cff6", "#e1f1ff"] },
+      "blue-wash": { "role": "tertiary", "displayName": "Blue Wash", "canonical": "#eaf1f8", "dark": "#273343" },
+      "slate": { "role": "tertiary", "displayName": "Slate", "canonical": "oklch(51% 0.029 156)", "dark": "#c7cbd1", "tonalRamp": ["#020f06", "#19291f", "#36473c", "#54665a", "#75887b", "#97ab9e", "#bbcfc1", "#e0f5e7"] },
+      "slate-wash": { "role": "tertiary", "displayName": "Slate Wash", "canonical": "#edf1e9", "dark": "#2e3138" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Landing hero headline only; italic em in Newsreader at 1.1em in Leaf." },
+      "headline": { "displayName": "Headline", "purpose": "Page titles in the workspace; em switches to Newsreader 400." },
+      "title": { "displayName": "Title", "purpose": "Panel, card, list-row and dialog titles; field labels at 0.75rem." },
+      "body": { "displayName": "Body", "purpose": "Interface text; 0.875rem in inputs, 0.8125rem in buttons, 16px in inputs on phones." },
+      "prose": { "displayName": "Prose", "purpose": "Analyses, notes, postings, gap texts; hairline-dash list markers." },
+      "aside": { "displayName": "Aside (italic)", "purpose": "The product speaking to a person: page lede, rail note, empty states. Never a control." },
+      "label": { "displayName": "Label", "purpose": "Eyebrows and flags, uppercase at 11px with 0.11em tracking." },
+      "numeral": { "displayName": "Numeral", "purpose": "Dates, counts, scores, distances, axes, n/N counter; tabular figures." }
+    },
+    "shadows": [
+      { "name": "shadow-sm", "value": "0 2px 5px rgba(21, 63, 54, 0.035)", "purpose": "Rest: panels and stat tiles. Dark: 0 2px 5px rgba(0,0,0,0.16)." },
+      { "name": "shadow", "value": "0 3px 14px -5px rgba(21, 63, 54, 0.12)", "purpose": "Float: card hover, chips search menu, auth card. Dark: 0 4px 16px -6px rgba(0,0,0,0.35)." },
+      { "name": "shadow-lg", "value": "0 24px 70px -24px rgba(21, 63, 54, 0.3)", "purpose": "Lift: dialogs and toasts. Dark: 0 24px 70px -24px rgba(0,0,0,0.65)." },
+      { "name": "landing-window", "value": "0 20px 65px -30px #28463650, 0 0 0 7px #ffffff70", "purpose": "The product window on the public page, with a translucent white ring." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(0.2, 0.6, 0.25, 1)", "purpose": "House easing for every state transition." },
+      { "name": "duration-state", "value": "0.12s", "purpose": "Hover, focus, colour and border transitions on controls." },
+      { "name": "duration-progress", "value": "0.3s", "purpose": "Onboarding progress bar width." },
+      { "name": "toast-in", "value": "0.22s rise from 8px", "purpose": "Toast entrance; toast-out 0.2s." },
+      { "name": "arrive", "value": "0.6s ease-out, opacity 0 to 1, translateY 16px to 0, stagger 0.12s", "purpose": "Landing opening reveal only." },
+      { "name": "reduced-motion", "value": "all animations and transitions to 0.01ms", "purpose": "Global prefers-reduced-motion rule in app.css and landing.css." }
+    ],
+    "breakpoints": [
+      { "name": "cols-2", "value": "1080px" },
+      { "name": "rail-collapse", "value": "960px" },
+      { "name": "cols-3", "value": "760px" },
+      { "name": "phone", "value": "620px" },
+      { "name": "landing-wide", "value": "1500px" },
+      { "name": "landing-lg", "value": "1100px" },
+      { "name": "landing-md", "value": "900px" },
+      { "name": "landing-sm", "value": "650px" },
+      { "name": "container-form-2", "value": "460px (container)" },
+      { "name": "container-form-3", "value": "680px (container)" },
+      { "name": "container-ledger", "value": "540px (container)" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one forest-filled action per view; hover shifts to Leaf.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Ajouter une offre<svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12h14M13 6l6 6-6 6\"/></svg></button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.65rem 1rem; min-height: 42px; border: 1px solid var(--rule-strong, #b4c4b3); border-radius: 9px; background: var(--card, #fff); color: var(--ink, #243e35); font-family: Archivo, ui-sans-serif, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 500; line-height: 1.2; cursor: pointer; transition: background 0.12s cubic-bezier(0.2,0.6,0.25,1), border-color 0.12s cubic-bezier(0.2,0.6,0.25,1), transform 0.12s cubic-bezier(0.2,0.6,0.25,1); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 3px solid var(--accent, #287253); outline-offset: 3px; } .ds-btn-primary { background: var(--button, #153f36); border-color: var(--button, #153f36); color: var(--on-button, #fff); } .ds-btn-primary:hover { background: var(--button-hover, #287253); border-color: var(--button-hover, #287253); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "The default button: card fill, hairline border, ink text.",
+      "html": "<button class=\"ds-btn ds-btn-secondary\">Relance faite</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.65rem 1rem; min-height: 42px; border: 1px solid var(--rule-strong, #b4c4b3); border-radius: 9px; background: var(--card, #fff); color: var(--ink, #243e35); font-family: Archivo, ui-sans-serif, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 500; line-height: 1.2; cursor: pointer; transition: background 0.12s cubic-bezier(0.2,0.6,0.25,1), border-color 0.12s cubic-bezier(0.2,0.6,0.25,1); } .ds-btn-secondary:hover { background: var(--card-alt, #f4f8ef); border-color: var(--ink-3, #627369); } .ds-btn:focus-visible { outline: 3px solid var(--accent, #287253); outline-offset: 3px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "44px field with a Leaf border and mint ring on focus.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Intitulé du poste</span><input class=\"ds-input\" type=\"text\" placeholder=\"Product Designer\"><span class=\"ds-field-help\">Tel qu'il apparaît dans l'annonce.</span></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.3rem; font-family: Archivo, ui-sans-serif, system-ui, sans-serif; max-width: 320px; } .ds-field-label { font-size: 0.75rem; font-weight: 600; color: var(--ink-2, #4f6658); letter-spacing: 0.01em; } .ds-field-help { font-size: 0.75rem; color: var(--ink-3, #627369); line-height: 1.55; } .ds-input { width: 100%; padding: 0.7rem 0.8rem; min-height: 44px; border: 1px solid var(--rule-strong, #b4c4b3); border-radius: 9px; background: var(--card, #fff); color: var(--ink, #243e35); font: inherit; font-size: 0.875rem; line-height: 1.4; transition: border-color 0.12s cubic-bezier(0.2,0.6,0.25,1), box-shadow 0.12s cubic-bezier(0.2,0.6,0.25,1); } .ds-input::placeholder { color: var(--ink-3, #627369); } .ds-input:focus { outline: none; border-color: var(--accent, #287253); box-shadow: 0 0 0 3px var(--focus-ring, #edf6ee); }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Pill toggle; selected takes the tone wash, border and text.",
+      "html": "<div class=\"ds-chip-row\"><button class=\"ds-chip\">Télétravail</button><button class=\"ds-chip is-on\">Hybride<svg viewBox=\"0 0 24 24\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12l5 5L20 7\"/></svg></button><button class=\"ds-chip\">Sur site</button></div>",
+      "css": ".ds-chip-row { display: flex; gap: 0.35rem; flex-wrap: wrap; } .ds-chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.7rem; min-height: 36px; border: 1px solid var(--rule-strong, #b4c4b3); border-radius: 999px; background: transparent; color: var(--ink-2, #4f6658); font-family: Archivo, ui-sans-serif, system-ui, sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.12s cubic-bezier(0.2,0.6,0.25,1); } .ds-chip:hover { border-color: var(--ink-3, #627369); color: var(--ink, #243e35); } .ds-chip.is-on { background: var(--tone-wash, var(--accent-wash, #edf6ee)); border-color: var(--tone, var(--accent, #287253)); color: var(--tone, var(--accent, #287253)); } .ds-chip:focus-visible { outline: 3px solid var(--accent, #287253); outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "pill",
+      "description": "Tone + wash + text label; the .t-* class sets both variables.",
+      "html": "<div class=\"ds-pill-row\"><span class=\"ds-pill ds-t-violet ds-pill-dot\">Vivier</span><span class=\"ds-pill ds-t-blue ds-pill-dot\">Envoyée</span><span class=\"ds-pill ds-t-amber ds-pill-dot\">Relance due</span><span class=\"ds-pill ds-t-green ds-pill-dot\">Entretien</span><span class=\"ds-pill ds-t-red ds-pill-dot\">Écartée</span></div>",
+      "css": ".ds-pill-row { display: flex; gap: 0.4rem; flex-wrap: wrap; } .ds-t-violet { --tone: var(--violet, #71538c); --tone-wash: var(--violet-wash, #f1eaf7); } .ds-t-blue { --tone: var(--blue, #3f698c); --tone-wash: var(--blue-wash, #eaf1f8); } .ds-t-amber { --tone: var(--amber, #856017); --tone-wash: var(--amber-wash, #f8efd9); } .ds-t-green { --tone: var(--moss, #426b3b); --tone-wash: var(--moss-wash, #eaf4e3); } .ds-t-red { --tone: var(--rust, #a04535); --tone-wash: var(--rust-wash, #faeae4); } .ds-pill { display: inline-flex; align-items: center; gap: 0.32rem; padding: 0.24rem 0.55rem; border-radius: 6px; background: var(--tone-wash, #edf1e9); color: var(--tone, #5a6c60); font-family: Archivo, ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 500; white-space: nowrap; } .ds-pill-dot::before { content: \"\"; width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "The workspace container: card, hairline, 14px, rest shadow, head and body.",
+      "html": "<section class=\"ds-panel\"><header class=\"ds-panel-head\"><h3 class=\"ds-panel-title\">À traiter maintenant</h3><span class=\"ds-eyebrow\">3 relances</span></header><div class=\"ds-panel-body\"><p class=\"ds-aside\">Rien d'urgent aujourd'hui. Tu peux avancer sur un dossier.</p></div></section>",
+      "css": ".ds-panel { background: var(--card, #fff); border: 1px solid var(--rule, #dfe7de); border-radius: 14px; overflow: hidden; box-shadow: 0 2px 5px rgba(21,63,54,0.035); font-family: Archivo, ui-sans-serif, system-ui, sans-serif; color: var(--ink, #243e35); max-width: 420px; } .ds-panel-head { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.15rem; border-bottom: 1px solid var(--rule, #dfe7de); } .ds-panel-title { margin: 0; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.01em; color: var(--heading, #153f36); } .ds-eyebrow { margin-left: auto; font-size: 11px; font-weight: 550; letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-3, #627369); } .ds-panel-body { padding: 1.2rem; } .ds-aside { margin: 0; font-family: Newsreader, ui-serif, Georgia, serif; font-style: italic; font-size: 1.12rem; line-height: 1.5; color: var(--ink-2, #4f6658); }"
+    },
+    {
+      "name": "Application Card",
+      "kind": "card",
+      "refersTo": "app-card",
+      "description": "A pipeline card: company mark in the tone wash, title, hairline footer with the gauge.",
+      "html": "<a class=\"ds-app-card ds-t-blue\" href=\"#\"><div class=\"ds-app-company\"><span class=\"ds-company-mark\">SN</span><span>Studio Nova</span></div><div class=\"ds-app-title\">Product Designer · Bruxelles · exemple fictif</div><div class=\"ds-app-foot\"><span class=\"ds-gauge\"><span class=\"ds-gauge-scale\"><span class=\"ds-gauge-fill\" style=\"width:78%\"></span></span><span class=\"ds-gauge-value\">78<sup>%</sup></span></span><span class=\"ds-flag\">Envoyée</span></div></a>",
+      "css": ".ds-t-blue { --tone: var(--blue, #3f698c); --tone-wash: var(--blue-wash, #eaf1f8); } .ds-app-card { display: block; max-width: 280px; padding: 1rem 0.95rem 0.85rem; background: var(--card, #fff); border: 1px solid var(--rule, #dfe7de); border-radius: 9px; text-decoration: none; color: var(--ink, #243e35); font-family: Archivo, ui-sans-serif, system-ui, sans-serif; transition: border-color 0.12s cubic-bezier(0.2,0.6,0.25,1), box-shadow 0.12s cubic-bezier(0.2,0.6,0.25,1); } .ds-app-card:hover { box-shadow: 0 3px 14px -5px rgba(21,63,54,0.12); border-color: color-mix(in srgb, var(--tone, #287253) 45%, var(--rule, #dfe7de)); } .ds-app-card:focus-visible { outline: 3px solid var(--accent, #287253); outline-offset: 3px; } .ds-app-company { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 600; letter-spacing: -0.012em; } .ds-company-mark { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--tone-wash, #edf6ee); color: var(--tone, #287253); font-size: 11px; font-weight: 550; } .ds-app-title { margin-top: 0.65rem; font-size: 0.8125rem; line-height: 1.55; color: var(--ink-2, #4f6658); } .ds-app-foot { margin-top: 0.9rem; padding-top: 0.75rem; border-top: 1px solid var(--rule, #dfe7de); display: flex; align-items: center; gap: 0.5rem; } .ds-gauge { display: inline-flex; align-items: center; gap: 0.55rem; margin-right: auto; } .ds-gauge-scale { position: relative; display: block; width: 52px; height: 4px; background: var(--paper-deep, #edf3e8); border-radius: 999px; overflow: hidden; } .ds-gauge-fill { position: absolute; inset: 0 auto 0 0; background: var(--tone, #5a6c60); border-radius: inherit; } .ds-gauge-value { font-size: 11.5px; font-weight: 550; font-variant-numeric: tabular-nums; color: var(--tone, #4f6658); } .ds-gauge-value sup { font-size: 0.7em; font-weight: 400; opacity: 0.7; } .ds-flag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 11px; font-weight: 550; letter-spacing: 0.05em; text-transform: uppercase; color: var(--tone, #627369); } .ds-flag::before { content: \"\"; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }"
+    },
+    {
+      "name": "Rail Navigation",
+      "kind": "nav",
+      "refersTo": "rail-link",
+      "description": "Sidebar links with icon, label and mono count; active is mint wash + Leaf.",
+      "html": "<nav class=\"ds-rail\"><a class=\"ds-rail-link is-active\" href=\"#\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1.5\"/><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1.5\"/><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1.5\"/></svg>Tableau de bord<span class=\"ds-rail-count\">3</span></a><a class=\"ds-rail-link\" href=\"#\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v11h-4z\"/></svg>Pipeline</a><a class=\"ds-rail-link\" href=\"#\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6h16M4 12h16M4 18h10\"/></svg>Candidatures<span class=\"ds-rail-count\">12</span></a></nav>",
+      "css": ".ds-rail { display: flex; flex-direction: column; gap: 0.3rem; width: 216px; padding: 0.5rem; background: var(--rail-bg, #fcfdfb); border: 1px solid var(--rule, #dfe7de); border-radius: 14px; font-family: Archivo, ui-sans-serif, system-ui, sans-serif; } .ds-rail-link { display: flex; align-items: center; gap: 0.65rem; padding: 0.7rem 0.75rem; min-height: 44px; border-radius: 9px; color: var(--ink-2, #4f6658); font-size: 0.8125rem; font-weight: 450; text-decoration: none; transition: background 0.12s cubic-bezier(0.2,0.6,0.25,1), color 0.12s cubic-bezier(0.2,0.6,0.25,1); } .ds-rail-link svg { width: 16px; height: 16px; flex: none; opacity: 0.85; } .ds-rail-link:hover { background: var(--card-alt, #f4f8ef); color: var(--ink, #243e35); } .ds-rail-link.is-active { background: var(--accent-wash, #edf6ee); color: var(--accent, #287253); font-weight: 600; } .ds-rail-link:focus-visible { outline: 3px solid var(--accent, #287253); outline-offset: 3px; } .ds-rail-count { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; min-width: 22px; text-align: center; padding: 1px 5px; border-radius: 5px; background: var(--paper-deep, #edf3e8); color: var(--ink-3, #627369); } .ds-rail-link.is-active .ds-rail-count { color: var(--accent, #287253); }"
+    },
+    {
+      "name": "Option Card",
+      "kind": "custom",
+      "refersTo": "option-card",
+      "description": "Onboarding answer card: full width, Leaf icon, check appears only when selected.",
+      "html": "<div class=\"ds-option-list\"><label class=\"ds-option\"><input type=\"radio\" name=\"ds-opt\" checked><svg class=\"ds-option-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4 3.6-7 8-7s8 3 8 7\"/></svg><span class=\"ds-option-body\"><span class=\"ds-option-label\">Je cherche activement</span><span class=\"ds-option-sub\">Plusieurs candidatures en parallèle.</span></span><svg class=\"ds-option-check\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12l5 5L20 7\"/></svg></label><label class=\"ds-option\"><input type=\"radio\" name=\"ds-opt\"><svg class=\"ds-option-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/></svg><span class=\"ds-option-body\"><span class=\"ds-option-label\">Je regarde discrètement</span><span class=\"ds-option-sub\">En poste, peu de temps.</span></span><svg class=\"ds-option-check\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12l5 5L20 7\"/></svg></label></div>",
+      "css": ".ds-option-list { display: flex; flex-direction: column; gap: 0.6rem; max-width: 420px; font-family: Archivo, ui-sans-serif, system-ui, sans-serif; } .ds-option { position: relative; display: flex; align-items: center; gap: 0.85rem; width: 100%; padding: 1rem 1.1rem; border: 1px solid var(--rule, #dfe7de); border-radius: 14px; background: var(--card, #fff); color: var(--ink, #243e35); cursor: pointer; transition: border-color 0.12s cubic-bezier(0.2,0.6,0.25,1), background 0.12s cubic-bezier(0.2,0.6,0.25,1), box-shadow 0.12s cubic-bezier(0.2,0.6,0.25,1); } .ds-option input { position: absolute; opacity: 0; width: 1px; height: 1px; } .ds-option:hover { border-color: var(--ink-3, #627369); } .ds-option:has(:focus-visible) { outline: 3px solid var(--accent, #287253); outline-offset: 2px; } .ds-option:has(:checked) { background: var(--accent-wash, #edf6ee); border-color: var(--accent, #287253); box-shadow: inset 0 0 0 1px var(--accent, #287253); } .ds-option-icon { width: 24px; height: 24px; flex: none; color: var(--accent, #287253); } .ds-option-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 0.1rem; } .ds-option-label { font-size: 0.95rem; font-weight: 550; letter-spacing: -0.01em; line-height: 1.35; } .ds-option-sub { font-size: 0.8rem; line-height: 1.5; color: var(--ink-2, #4f6658); } .ds-option-check { display: none; width: 20px; height: 20px; flex: none; margin-left: auto; color: var(--accent, #287253); } .ds-option input:checked ~ .ds-option-check { display: block; }"
+    },
+    {
+      "name": "Large Gauge",
+      "kind": "custom",
+      "refersTo": "app-card",
+      "description": "Detail-page score: an 8px track, a large tabular value, and a mono legend of the score bands.",
+      "html": "<div class=\"ds-gauge-lg ds-t-green\"><div class=\"ds-gauge-lg-row\"><span class=\"ds-gauge-lg-scale\"><span class=\"ds-gauge-lg-fill\" style=\"width:82%\"></span></span><span class=\"ds-gauge-lg-value\">82<sup>/100</sup></span></div><div class=\"ds-gauge-legend\"><span>50 pari risqué</span><span>65 ça vaut le coup</span><span>80 évidente</span></div></div>",
+      "css": ".ds-t-green { --tone: var(--moss, #426b3b); } .ds-gauge-lg { max-width: 420px; font-family: Archivo, ui-sans-serif, system-ui, sans-serif; } .ds-gauge-lg-row { display: flex; align-items: center; gap: 0.9rem; } .ds-gauge-lg-scale { position: relative; display: block; flex: 1 1 auto; height: 8px; background: var(--paper-deep, #edf3e8); border-radius: 999px; overflow: hidden; } .ds-gauge-lg-fill { position: absolute; inset: 0 auto 0 0; background: var(--tone, #5a6c60); border-radius: inherit; } .ds-gauge-lg-value { font-size: 1.7rem; font-weight: 550; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--tone, #4f6658); } .ds-gauge-lg-value sup { font-size: 0.7em; font-weight: 400; opacity: 0.7; margin-left: 1px; } .ds-gauge-legend { display: flex; justify-content: space-between; margin-top: 0.3rem; font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 9.5px; letter-spacing: 0.08em; color: var(--ink-3, #627369); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Le carnet de bord",
+    "overview": "The interface is a logbook kept with care. Everything in it exists to answer « what do I handle today? » without noise: thin rules instead of boxes, dates and scores set in mono so they line up, and one italic serif voice that speaks to the person rather than to the task. It is calm, frank and well finished. Nothing is decorative for its own sake; the brand lives in the accuracy of small details (the dot after the wordmark, the arrow mark, the mint welcome panel, the way a status is always a word and a colour together).\n\nTwo greens carry the identity. Forest deep is the voice of the product: the wordmark, headings, the single primary action. Leaf is the hand that points: links, the selected navigation item, focus, progress. Everything else is paper, ink and a small family of muted status tones that always come with their own wash. Depth is drawn, not lit: surfaces stack by tint and are separated by hairlines; shadows appear only on what genuinely floats.\n\nConfirmed anti-reference: the overstimulated SaaS landing page (JobAssist and its kind), with purple gradients, confetti, stacked cards, user counters and fabricated matches. The public page shows the whole working pipeline instead. The dark theme is neutral charcoal, never forest-tinted; a tinted dark theme was tried and rejected for readability on September 9, 2026.",
+    "keyCharacteristics": [
+      "Paper ground, hairline rules, tinted surface steps; flat by default.",
+      "Archivo for every control and heading; Newsreader italic reserved for the human aside; IBM Plex Mono for anything counted.",
+      "One primary action per view in forest deep; leaf for pointing, never for filling.",
+      "Status is tone + wash + text label, driven by a `.t-*` class that sets two variables.",
+      "Rounded but not soft: 9 px controls, 14 px containers, pills only for chips and tracks.",
+      "120 ms state transitions on a single house easing; motion respects reduced-motion globally."
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Forest fills at most one control per view. Leaf points but never fills a surface larger than a chip. If a screen needs a second filled button, the design is wrong, not the palette.", "section": "colors" },
+      { "name": "The Tone-and-Wash Rule", "body": "A status colour never travels alone: it is set as a tone plus its wash through a `.t-*` class, and it is always accompanied by a text label. Colour is a reinforcement, never the only carrier.", "section": "colors" },
+      { "name": "The Charcoal Night Rule", "body": "Dark mode is neutral charcoal (`#141518` ground, `#1e2025` cards) with mint-green accents (`#9bd4b2`), not a darkened forest. Light tokens are unchanged by the theme; only the dark block redefines them.", "section": "colors" },
+      { "name": "The Italic Aside Rule", "body": "Newsreader italic is the product speaking to a person. It never labels a control, never sits in a table, never carries a number.", "section": "typography" },
+      { "name": "The Tabular Rule", "body": "Any number a reader might compare with another is set in Plex Mono with tabular figures, right-aligned when in a column.", "section": "typography" },
+      { "name": "The Uppercase Budget", "body": "Uppercase exists only at 9–11 px with at least 0.05 em tracking (eyebrows, flags, table headers, axis labels). Headings and buttons are never uppercase.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. A shadow is a response to state (hover) or to floating (menu, dialog, toast), never a decoration.", "section": "elevation" },
+      { "name": "The Hairline-First Rule", "body": "When two regions must read as separate, draw a 1 px rule before adding a shadow or a second background.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do set status with a `.t-*` class and let components read `--tone` / `--tone-wash`; never hard-code a status hex in a component.",
+      "Do pair every colour-coded state with a text label (pill, flag, board label).",
+      "Do keep one forest-filled action per view and make the rest secondary or ghost.",
+      "Do set dates, counts, scores and distances in Plex Mono with `tabular-nums`.",
+      "Do use Newsreader italic for the page lede, the welcome line and empty states, and upright Newsreader for analyses, notes and postings.",
+      "Do separate repeated rows with 1 px Rule and reserve shadows for hover, menus, dialogs and toasts.",
+      "Do use container queries for forms inside panels and dialogs; the viewport does not know how wide a panel is.",
+      "Do honour 44 px touch targets and 16 px inputs below 620 px, and keep boards and tables scrolling inside their own region.",
+      "Do keep every font local and every icon an inline SVG from the shared icon partials.",
+      "Do label fictional demo content as fictional wherever it appears."
+    ],
+    "donts": [
+      "Don't tint the dark theme with forest; it is neutral charcoal with mint accents.",
+      "Don't fill a surface with Leaf; it points (links, active, focus, progress) and never carries body text.",
+      "Don't add gradients, confetti, stacked-card carousels, user counters or invented scores; the anti-reference is the overstimulated SaaS page.",
+      "Don't introduce a third radius between 9 and 14 px or a full pill on anything that is not a chip, segment or track.",
+      "Don't put uppercase on headings or buttons; the uppercase budget is 9–11 px labels only.",
+      "Don't use a needle, dial or ring for a score; the gauge is a track plus a number.",
+      "Don't animate beyond the 120 ms house transition and the landing's single 0.6 s reveal; reduced-motion zeroes everything.",
+      "Don't load external fonts, scripts, images or analytics on any page."
+    ]
+  }
+}

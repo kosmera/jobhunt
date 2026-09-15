@@ -1,0 +1,11 @@
+{
+  "name": "pbakaus/impeccable",
+  "version": "0a4e72a254f3b175c95b36b82e5f2e60fa63f116",
+  "summary": "Auto-generated plugin from GitHub (5 skills)",
+  "private": true,
+  "skills": {
+    "impeccable": {
+      "path": ".opencode/skills/impeccable/SKILL.md"
+    }
+  }
+}

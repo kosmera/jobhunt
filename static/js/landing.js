@@ -54,11 +54,11 @@
   });
 
   const examples = {
-    nova: ['Product Designer', 'Studio Nova · Bruxelles · Hybride', 'À préparer · 92 % de compatibilité', 'Relisez l’offre et rassemblez les projets qui montrent votre expérience en design produit. Préparez ensuite votre CV pour cette candidature.'],
-    horizon: ['UX Researcher', 'Horizon · À distance', 'À préparer', 'Consultez les missions et notez les études utilisateur qui illustrent le mieux votre parcours.'],
-    bloom: ['Senior UX Designer', 'Bloom · Louvain-la-Neuve · Hybride', 'Envoyée · Relance demain', 'Préparez un message de suivi pour confirmer votre intérêt et demander où en est le recrutement.'],
-    forma: ['Designer d’interface', 'Forma · Bruxelles', 'Envoyée · Relance dans 7 jours', 'Votre candidature est envoyée. Gardez vos notes à jour et retrouvez ici la date de votre prochaine relance.'],
-    lumen: ['Lead Product Designer', 'Lumen · Bruxelles · Hybride', 'Entretien · Jeudi 17 à 10:00', 'Préparez vos questions pour l’équipe et choisissez les projets que vous souhaitez présenter pendant cet entretien de 45 minutes.'],
+    nova: ['Product Designer', 'Studio Nova · Bruxelles · Hybride', 'À postuler · 92 % de compatibilité', 'Relis l’offre et rassemble les projets qui montrent ton expérience en design produit. Prépare ensuite ton CV pour cette candidature.'],
+    horizon: ['UX Researcher', 'Horizon · À distance', 'À postuler', 'Consulte les missions et note les études utilisateur qui illustrent le mieux ton parcours.'],
+    bloom: ['Senior UX Designer', 'Bloom · Louvain-la-Neuve · Hybride', 'Envoyée · Relance demain', 'Prépare un message de suivi pour confirmer ton intérêt et demander où en est le recrutement.'],
+    forma: ['Designer d’interface', 'Forma · Bruxelles', 'Envoyée · Relance dans 7 jours', 'Ta candidature est envoyée. Garde tes notes à jour et retrouve ici la date de ta prochaine relance.'],
+    lumen: ['Lead Product Designer', 'Lumen · Bruxelles · Hybride', 'Entretien · Jeudi 17 à 10:00', 'Prépare tes questions pour l’équipe et choisis les projets que tu souhaites présenter pendant cet entretien de 45 minutes.'],
   };
   const dialog = document.querySelector('.job-dialog');
   document.querySelectorAll('[data-job]').forEach((card) => {

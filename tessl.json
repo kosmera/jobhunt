@@ -3,7 +3,7 @@
   "mode": "vendored",
   "dependencies": {
     "abhigyanpatwari/GitNexus": {
-      "version": "94d53eda8e56908d7bb36d60e187de7a52fc8739",
+      "version": "ac9a4e9abd8fd3058c070b72c23402a4f887929a",
       "source": "https://github.com/abhigyanpatwari/GitNexus",
       "include": {
         "skills": [
@@ -21,6 +21,15 @@
       "include": {
         "skills": [
           "karpathy-guidelines"
+        ]
+      }
+    },
+    "pbakaus/impeccable": {
+      "version": "0a4e72a254f3b175c95b36b82e5f2e60fa63f116",
+      "source": "https://github.com/pbakaus/impeccable",
+      "include": {
+        "skills": [
+          "impeccable"
         ]
       }
     }
